@@ -1,0 +1,28 @@
+{
+  "name": "smart-ration-mobile",
+  "version": "1.0.0",
+  "description": "Smart Ration Digital Booking & Biometric Queue Management Expo App",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^14.0.0",
+    "expo": "~51.0.0",
+    "expo-barcode-scanner": "~13.0.1",
+    "expo-camera": "~15.0.13",
+    "expo-status-bar": "~1.12.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-native": "0.74.5",
+    "react-native-web": "~0.19.10",
+    "@expo/metro-runtime": "~3.2.3"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0"
+  },
+  "private": true
+}
