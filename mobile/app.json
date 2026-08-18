@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Smart Ration",
+    "slug": "smart-ration-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.hari12345.smartrationmobile",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Smart Ration to access camera for scanning QR codes"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Smart Ration to access photos"
+        }
+      ],
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a0edb777-4853-47cc-9c69-2133d131206e"
+      }
+    }
+  }
+}

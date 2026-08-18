@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { colors } from '../../theme/colors';
 import { api } from '../../api/client';
+import { socketManager } from '../../api/socket';
+import Footer from '../../components/Footer';
 
 export default function AdminView({ lang }) {
   const [loading, setLoading] = useState(true);
@@ -9,8 +11,32 @@ export default function AdminView({ lang }) {
   const [rationCards, setRationCards] = useState([]);
   const [fraudAlerts, setFraudAlerts] = useState([]);
 
+  const [socketConnected, setSocketConnected] = useState(false);
+
   useEffect(() => {
     loadAdminData();
+    socketManager.connect('shop_1');
+
+    const unsubConn = socketManager.onConnectionChange(setSocketConnected);
+
+    const unsubAnalytics = socketManager.subscribeToAnalytics((freshAnalytics) => {
+      console.log('[Admin Socket] Analytics update received:', freshAnalytics);
+      if (freshAnalytics) {
+        setAnalytics(freshAnalytics);
+      }
+    });
+
+    const unsubIssue = socketManager.subscribeToIssueComplete(() => {
+      console.log('[Admin Socket] Issue complete received, refreshing logs');
+      api.getAdminAnalytics().then(res => setAnalytics(res.analytics || null));
+      api.getFraudAlerts().then(res => setFraudAlerts(res.alerts || []));
+    });
+
+    return () => {
+      unsubConn();
+      unsubAnalytics();
+      unsubIssue();
+    };
   }, []);
 
   const loadAdminData = async () => {
@@ -35,18 +61,23 @@ export default function AdminView({ lang }) {
   if (loading) {
     return (
       <View style={styles.loadingBox}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <ActivityIndicator size="large" color="#0B3D91" />
         <Text style={styles.loadingText}>Fetching District Civil Supplies Analytics...</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
-      {/* Header */}
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 20 }}>
+      {/* Official Government Admin Header */}
       <View style={styles.adminHeader}>
-        <Text style={styles.headerTitle}>🏛️ District Civil Supplies & Consumer Protection</Text>
-        <Text style={styles.headerSub}>Admin Portal • Tamil Nadu Public Distribution System (PDS)</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>🏛️ District Civil Supplies & Consumer Protection</Text>
+          <Text style={styles.headerSub}>State Administration Portal • Tamil Nadu PDS Control Room</Text>
+        </View>
+        <View style={[styles.liveTag, { backgroundColor: socketConnected ? '#166534' : '#854D0E' }]}>
+          <Text style={styles.liveTagText}>{socketConnected ? '⚡ SOCKET REALTIME LIVE' : '🟡 RECONNECTING'}</Text>
+        </View>
       </View>
 
       {/* Analytics KPI Stat Grid */}
@@ -54,7 +85,7 @@ export default function AdminView({ lang }) {
         <View style={styles.kpiGrid}>
           <View style={styles.kpiCard}>
             <Text style={styles.kpiValue}>{analytics.total_registered_beneficiaries}</Text>
-            <Text style={styles.kpiLabel}>Active Cards</Text>
+            <Text style={styles.kpiLabel}>Active Ration Cards</Text>
           </View>
 
           <View style={styles.kpiCard}>
@@ -68,53 +99,60 @@ export default function AdminView({ lang }) {
           </View>
 
           <View style={styles.kpiCard}>
-            <Text style={[styles.kpiValue, { color: colors.gold }]}>₹{analytics.total_revenue_collected_inr}</Text>
+            <Text style={[styles.kpiValue, { color: '#0B3D91' }]}>₹{analytics.total_revenue_collected_inr}</Text>
             <Text style={styles.kpiLabel}>UPI Revenue Collected</Text>
           </View>
         </View>
       )}
 
-      {/* Low Stock Alerts */}
+      {/* Stock Replenishment Alerts Banner */}
       {analytics?.low_stock_alerts && analytics.low_stock_alerts.length > 0 && (
         <View style={styles.alertBanner}>
-          <Text style={styles.alertBannerTitle}>⚠️ Stock Replenishment Alerts:</Text>
+          <Text style={styles.alertBannerTitle}>⚠️ Stock Replenishment Threshold Alerts:</Text>
           {analytics.low_stock_alerts.map((al, idx) => (
             <Text key={idx} style={styles.alertText}>
-              • {al.itemId}: Current stock {al.currentStock} units (Below 500 threshold).
+              • FPS #401 ({al.itemId}): Current stock <Text style={{ fontWeight: '800' }}>{al.currentStock} units</Text> (Below minimum 500 threshold).
             </Text>
           ))}
         </View>
       )}
 
-      {/* Fraud Audit Log */}
-      <View style={styles.section}>
+      {/* Fraud Audit Log Table */}
+      <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>🛡️ Biometric Fraud & Token Re-use Audit Trail</Text>
         {fraudAlerts.map((fa, idx) => (
           <View key={idx} style={styles.fraudCard}>
             <View style={styles.fraudRow}>
-              <Text style={styles.fraudId}>Booking: {fa.booking_id}</Text>
-              <Text style={styles.fraudRisk}>{fa.risk_level}</Text>
+              <Text style={styles.fraudId}>App Ref: TN/RATION/2026/0000{fa.booking_id}</Text>
+              <View style={styles.riskBadge}>
+                <Text style={styles.fraudRisk}>{fa.risk_level}</Text>
+              </View>
             </View>
             <Text style={styles.fraudNote}>{fa.audit_note}</Text>
-            <Text style={styles.fraudCardNo}>Card: {fa.card_no}</Text>
+            <Text style={styles.fraudCardNo}>Ration Card No: {fa.card_no}</Text>
           </View>
         ))}
       </View>
 
-      {/* Ration Beneficiaries List */}
-      <View style={styles.section}>
+      {/* Registered Beneficiaries Data List */}
+      <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>📋 Registered Ration Card Beneficiaries ({rationCards.length})</Text>
         {rationCards.map((card) => (
           <View key={card.card_no} style={styles.beneficiaryCard}>
             <View style={styles.benRow}>
               <Text style={styles.benName}>{card.holder_name}</Text>
-              <Text style={styles.benCat}>{card.category}</Text>
+              <View style={styles.catBadge}>
+                <Text style={styles.benCat}>{card.category}</Text>
+              </View>
             </View>
             <Text style={styles.benCardNo}>Card No: {card.card_no}</Text>
-            <Text style={styles.benMeta}>Family Size: {card.family_size} | Phone: {card.phone}</Text>
+            <Text style={styles.benMeta}>Family Members: {card.family_size} | Phone: {card.phone}</Text>
           </View>
         ))}
       </View>
+
+      {/* Footer Disclaimer */}
+      <Footer />
     </ScrollView>
   );
 }
@@ -122,129 +160,172 @@ export default function AdminView({ lang }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.bgDark,
-    padding: 16
+    backgroundColor: '#F4F6F9',
+    paddingHorizontal: 14,
+    paddingTop: 14
   },
   loadingBox: {
     flex: 1,
-    backgroundColor: colors.bgDark,
+    backgroundColor: '#F4F6F9',
     justifyContent: 'center',
     alignItems: 'center'
   },
   loadingText: {
-    color: colors.primary,
-    marginTop: 12
+    color: '#0B3D91',
+    marginTop: 12,
+    fontSize: 13,
+    fontWeight: '600'
   },
   adminHeader: {
-    backgroundColor: colors.bgCard,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 20
+    backgroundColor: '#061E47',
+    padding: 14,
+    borderRadius: 8,
+    borderBottomWidth: 3,
+    borderBottomColor: '#FF9933',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16
+  },
+  headerLeft: {
+    flex: 1
   },
   headerTitle: {
-    fontSize: 17,
-    fontWeight: 'bold',
-    color: colors.primary
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF'
   },
   headerSub: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginTop: 4
+    fontSize: 10,
+    color: '#FF9933',
+    marginTop: 2
+  },
+  liveTag: {
+    backgroundColor: 'rgba(220, 38, 38, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#DC2626'
+  },
+  liveTagText: {
+    color: '#F87171',
+    fontSize: 9,
+    fontWeight: '800'
   },
   kpiGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 20
+    gap: 8,
+    marginBottom: 16
   },
   kpiCard: {
-    width: '48%',
-    backgroundColor: colors.bgCard,
-    padding: 14,
-    borderRadius: 12,
+    width: '48.5%',
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center'
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1
   },
   kpiValue: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: colors.primary
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0B3D91'
   },
   kpiLabel: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginTop: 4,
-    textAlign: 'center'
+    fontSize: 10,
+    color: '#64748B',
+    marginTop: 2,
+    textAlign: 'center',
+    fontWeight: '600'
   },
   alertBanner: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    backgroundColor: '#FEF2F2',
     borderWidth: 1,
-    borderColor: colors.danger,
-    padding: 14,
-    borderRadius: 10,
-    marginBottom: 20
+    borderColor: '#DC2626',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16
   },
   alertBannerTitle: {
-    color: colors.danger,
-    fontWeight: 'bold',
-    fontSize: 13,
+    color: '#DC2626',
+    fontWeight: '800',
+    fontSize: 12,
     marginBottom: 4
   },
   alertText: {
-    color: colors.textPrimary,
-    fontSize: 12,
+    color: '#0F172A',
+    fontSize: 11,
     marginTop: 2
   },
-  section: {
-    marginBottom: 24
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    marginBottom: 16
   },
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: colors.primary,
-    marginBottom: 12
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0B3D91',
+    marginBottom: 10
   },
   fraudCard: {
-    backgroundColor: colors.bgCard,
-    padding: 12,
-    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    padding: 10,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: '#CBD5E1',
     marginBottom: 8
   },
   fraudRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between'
+    justifyContent: 'space-between',
+    alignItems: 'center'
   },
   fraudId: {
-    color: colors.textPrimary,
-    fontWeight: 'bold',
-    fontSize: 13
+    color: '#0F172A',
+    fontWeight: '800',
+    fontSize: 12
+  },
+  riskBadge: {
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#FCA5A5'
   },
   fraudRisk: {
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: 'bold'
+    color: '#DC2626',
+    fontSize: 9,
+    fontWeight: '800'
   },
   fraudNote: {
-    color: colors.textSecondary,
+    color: '#475569',
     fontSize: 11,
-    marginTop: 4
+    marginTop: 3
   },
   fraudCardNo: {
-    color: colors.gold,
-    fontSize: 11,
-    marginTop: 2
+    color: '#0B3D91',
+    fontSize: 10,
+    marginTop: 2,
+    fontWeight: '700'
   },
   beneficiaryCard: {
-    backgroundColor: colors.bgCard,
-    padding: 12,
-    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    padding: 10,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: '#CBD5E1',
     marginBottom: 8
   },
   benRow: {
@@ -253,27 +334,30 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   benName: {
-    color: colors.textPrimary,
-    fontWeight: 'bold',
-    fontSize: 14
+    color: '#0F172A',
+    fontWeight: '800',
+    fontSize: 13
   },
-  benCat: {
-    backgroundColor: colors.primaryDark,
-    color: '#FFF',
-    fontSize: 10,
-    fontWeight: 'bold',
+  catBadge: {
+    backgroundColor: '#0B3D91',
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 8
+    borderRadius: 4
+  },
+  benCat: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800'
   },
   benCardNo: {
-    color: colors.gold,
-    fontSize: 12,
+    color: '#0B3D91',
+    fontSize: 11,
+    fontWeight: '700',
     marginTop: 2
   },
   benMeta: {
-    color: colors.textSecondary,
-    fontSize: 11,
-    marginTop: 4
+    color: '#64748B',
+    fontSize: 10,
+    marginTop: 2
   }
 });

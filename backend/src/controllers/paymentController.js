@@ -97,6 +97,28 @@ class PaymentController {
   }
 
   /**
+   * Get User Transactions History
+   */
+  static async getUserTransactions(req, res) {
+    try {
+      const { card_no } = req.user;
+      const result = await db.query(
+        `SELECT t.*, b.slot_time, b.card_no 
+         FROM transactions t 
+         JOIN bookings b ON t.booking_id = b.booking_id 
+         WHERE b.card_no = $1 
+         ORDER BY t.created_at DESC`,
+        [card_no]
+      );
+
+      return res.json({ success: true, transactions: result.rows || [] });
+    } catch (error) {
+      console.error('[Get Transactions Error]', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch transactions history' });
+    }
+  }
+
+  /**
    * Webhook Listener for Razorpay Events
    */
   static async handleWebhook(req, res) {

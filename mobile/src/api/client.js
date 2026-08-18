@@ -38,6 +38,7 @@ export const api = {
   sendOtp: (card_no) => request('/auth/send-otp', { method: 'POST', body: JSON.stringify({ card_no }) }),
   verifyOtp: (card_no, otp) => request('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ card_no, otp }) }),
   getMe: () => request('/auth/me'),
+  changePassword: (old_password, new_password) => request('/auth/change-password', { method: 'POST', body: JSON.stringify({ old_password, new_password }) }),
 
   // Items & Stock
   getItems: () => request('/items'),
@@ -45,7 +46,8 @@ export const api = {
 
   // Bookings
   getSlots: (date) => request(`/bookings/slots?date=${date || ''}`),
-  createBooking: (items, slot_time) => request('/bookings/create', { method: 'POST', body: JSON.stringify({ items, slot_time }) }),
+  createBooking: (items, slot_time, token_number) => request('/bookings/create', { method: 'POST', body: JSON.stringify({ items, slot_time, token_number }) }),
+  cancelBooking: (booking_id) => request('/bookings/cancel', { method: 'POST', body: JSON.stringify({ booking_id }) }),
   getMyBookings: () => request('/bookings/my-bookings'),
   getBookingById: (id) => request(`/bookings/${id}`),
 
@@ -62,5 +64,8 @@ export const api = {
   getAdminAnalytics: () => request('/admin/analytics'),
   getRationCards: () => request('/admin/ration-cards'),
   updateStock: (new_stock) => request('/admin/update-stock', { method: 'POST', body: JSON.stringify({ new_stock }) }),
-  getFraudAlerts: () => request('/admin/fraud-alerts')
+  getFraudAlerts: () => request('/admin/fraud-alerts'),
+
+  // Live Queue
+  getQueueStatus: (shopId = 'shop_1', cardNo = '', userTokenNum = 12) => request(`/queue/${shopId}?card_no=${cardNo}&user_token=${userTokenNum}`)
 };

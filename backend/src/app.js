@@ -7,6 +7,7 @@ const bookingRoutes = require('./routes/bookings');
 const paymentRoutes = require('./routes/payments');
 const issueRoutes = require('./routes/issue');
 const adminRoutes = require('./routes/admin');
+const queueRoutes = require('./routes/queue');
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/issue', issueRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/queue', queueRoutes);
 
 // Root Route - Welcome Info
 app.get('/', (req, res) => {

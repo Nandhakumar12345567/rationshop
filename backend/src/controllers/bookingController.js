@@ -1,12 +1,13 @@
 const db = require('../config/db');
 const QRService = require('../services/qrService');
 const NotificationService = require('../services/notificationService');
+const socketService = require('../services/socketService');
 
-const MAX_SLOT_CAPACITY = 10; // Maximum customers per time slot
+const MAX_SLOT_CAPACITY = 20; // Maximum customers per time slot (20 tokens cap per hour)
 
 class BookingController {
   /**
-   * Get Available Slots for a given date with current capacity counts
+   * Get Available Slots for a given date with current capacity counts and booked token numbers
    */
   static async getAvailableSlots(req, res) {
     try {
@@ -23,25 +24,43 @@ class BookingController {
 
       // Query database for existing bookings for these slots on given date
       const result = await db.query(
-        "SELECT slot_time, COUNT(*) as count FROM bookings WHERE slot_time LIKE $1 AND status != 'CANCELLED' GROUP BY slot_time",
+        "SELECT slot_time, qr_token FROM bookings WHERE slot_time LIKE $1 AND status != 'CANCELLED'",
         [`${dateStr}%`]
       );
 
-      const bookingCounts = {};
+      const slotBookings = {};
       result.rows.forEach(row => {
-        bookingCounts[row.slot_time] = parseInt(row.count, 10);
+        if (!slotBookings[row.slot_time]) {
+          slotBookings[row.slot_time] = [];
+        }
+        // Try to parse token_number from qr_token JSON if available
+        let tokenNum = null;
+        try {
+          const payload = JSON.parse(row.qr_token || '{}');
+          tokenNum = payload.token_number;
+        } catch (e) {}
+        
+        slotBookings[row.slot_time].push(tokenNum);
       });
 
       const slots = timeSlots.map(slot => {
         const fullSlotName = `${dateStr} ${slot}`;
-        const bookedCount = bookingCounts[fullSlotName] || 0;
+        const existingList = slotBookings[fullSlotName] || [];
+        const bookedCount = existingList.length;
+
+        // Map which specific token numbers from 1 to 20 are booked
+        const bookedTokenNumbers = existingList
+          .map((num, idx) => num || (idx + 1))
+          .filter(Boolean);
+
         return {
           slot_time: fullSlotName,
           display_time: slot,
           booked_count: bookedCount,
           max_capacity: MAX_SLOT_CAPACITY,
           available_capacity: Math.max(0, MAX_SLOT_CAPACITY - bookedCount),
-          is_full: bookedCount >= MAX_SLOT_CAPACITY
+          is_full: bookedCount >= MAX_SLOT_CAPACITY,
+          booked_token_numbers: bookedTokenNumbers
         };
       });
 
@@ -53,12 +72,12 @@ class BookingController {
   }
 
   /**
-   * Create Booking & Validate Entitlements + Capacity
+   * Create Booking & Validate Entitlements + Capacity + Custom Selected Token Number (1 to 20)
    */
   static async createBooking(req, res) {
     try {
       const { card_no, category } = req.user;
-      const { items, slot_time } = req.body;
+      const { items, slot_time, token_number } = req.body;
 
       if (!items || !Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ success: false, error: 'Selected items array cannot be empty' });
@@ -68,18 +87,50 @@ class BookingController {
         return res.status(400).json({ success: false, error: 'Slot time is required' });
       }
 
-      // 1. Capacity Check
-      const capacityCheck = await db.query(
-        "SELECT COUNT(*) as count FROM bookings WHERE slot_time = $1 AND status != 'CANCELLED'",
+      // 1. Capacity & Token Number Selection Check
+      const existingBookings = await db.query(
+        "SELECT qr_token FROM bookings WHERE slot_time = $1 AND status != 'CANCELLED'",
         [slot_time]
       );
-      const currentBooked = parseInt(capacityCheck.rows[0]?.count || 0, 10);
+      const currentBookedCount = existingBookings.rows.length;
 
-      if (currentBooked >= MAX_SLOT_CAPACITY) {
+      if (currentBookedCount >= MAX_SLOT_CAPACITY) {
         return res.status(400).json({
           success: false,
-          error: `Selected slot (${slot_time}) is fully booked. Please select another time slot.`
+          error: `Selected slot (${slot_time}) is fully booked (20/20). Please select another slot.`
         });
+      }
+
+      // Determine taken token numbers
+      const takenTokenNumbers = existingBookings.rows.map((row, idx) => {
+        try {
+          const payload = JSON.parse(row.qr_token || '{}');
+          return payload.token_number || (idx + 1);
+        } catch (e) {
+          return idx + 1;
+        }
+      });
+
+      let chosenTokenNum = parseInt(token_number, 10);
+      if (chosenTokenNum && (chosenTokenNum < 1 || chosenTokenNum > MAX_SLOT_CAPACITY)) {
+        return res.status(400).json({ success: false, error: 'Token number must be between 1 and 20' });
+      }
+
+      if (chosenTokenNum && takenTokenNumbers.includes(chosenTokenNum)) {
+        return res.status(400).json({
+          success: false,
+          error: `Token #${chosenTokenNum} is already selected by another beneficiary. Please choose another token number.`
+        });
+      }
+
+      // Auto-assign first available token number if not manually specified
+      if (!chosenTokenNum) {
+        for (let i = 1; i <= MAX_SLOT_CAPACITY; i++) {
+          if (!takenTokenNumbers.includes(i)) {
+            chosenTokenNum = i;
+            break;
+          }
+        }
       }
 
       // 2. Entitlement Rule Check
@@ -129,11 +180,12 @@ class BookingController {
         card_no,
         items: JSON.stringify(validatedItems),
         slot_time,
+        token_number: chosenTokenNum,
         payment_status: totalPrice === 0 ? 'PAID' : 'PENDING',
         status: 'BOOKED'
       };
 
-      // Generate QR payload
+      // Generate QR payload embedding token_number
       const qr_token = QRService.generateTokenPayload(bookingObj);
 
       await db.query(
@@ -153,15 +205,26 @@ class BookingController {
       // Trigger push notification reminder
       NotificationService.sendSlotReminder(card_no, slot_time);
 
+      // Trigger real-time socket updates
+      try {
+        socketService.emitSlotUpdate({ slot_time, booked_token_number: chosenTokenNum });
+        const QueueController = require('./queueController');
+        const freshQueue = await QueueController.getRawQueueData();
+        socketService.emitQueueUpdate('shop_1', freshQueue);
+      } catch (sockErr) {
+        console.error('[Booking Socket Emit Error]', sockErr);
+      }
+
       return res.status(201).json({
         success: true,
-        message: 'Booking created successfully!',
+        message: `Booking created successfully! Selected Token #${chosenTokenNum}`,
         booking: {
           booking_id,
           card_no,
           items: validatedItems,
           total_amount: totalPrice,
           slot_time,
+          token_number: chosenTokenNum,
           payment_status: bookingObj.payment_status,
           qr_token,
           status: 'BOOKED'
@@ -224,6 +287,53 @@ class BookingController {
     } catch (error) {
       console.error('[Get Booking Details Error]', error);
       res.status(500).json({ success: false, error: 'Failed to fetch booking details' });
+    }
+  }
+
+  /**
+   * Cancel Booking & Release Time Slot in Real-Time
+   */
+  static async cancelBooking(req, res) {
+    try {
+      const { booking_id } = req.body;
+      const { card_no } = req.user;
+
+      if (!booking_id) {
+        return res.status(400).json({ success: false, error: 'booking_id is required' });
+      }
+
+      const result = await db.query('SELECT * FROM bookings WHERE booking_id = $1 AND card_no = $2', [booking_id, card_no]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Booking not found for this card' });
+      }
+
+      const booking = result.rows[0];
+      if (booking.status === 'ISSUED') {
+        return res.status(400).json({ success: false, error: 'Cannot cancel a token that has already been issued' });
+      }
+
+      if (booking.status === 'CANCELLED') {
+        return res.status(400).json({ success: false, error: 'Token is already cancelled' });
+      }
+
+      await db.query("UPDATE bookings SET status = 'CANCELLED' WHERE booking_id = $1", [booking_id]);
+
+      try {
+        socketService.emitSlotUpdate({ slot_time: booking.slot_time, cancelled_booking_id: booking_id });
+        const QueueController = require('./queueController');
+        const freshQueue = await QueueController.getRawQueueData();
+        socketService.emitQueueUpdate('shop_1', freshQueue);
+      } catch (sockErr) {
+        console.error('[Cancel Socket Emit Error]', sockErr);
+      }
+
+      return res.json({
+        success: true,
+        message: `Token #${booking_id} successfully cancelled! Slot released.`
+      });
+    } catch (error) {
+      console.error('[Cancel Booking Error]', error);
+      res.status(500).json({ success: false, error: 'Failed to cancel booking' });
     }
   }
 }

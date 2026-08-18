@@ -12,7 +12,6 @@ class QRService {
       booking_id: booking.booking_id,
       card_no: booking.card_no,
       slot_time: booking.slot_time,
-      items: typeof booking.items === 'string' ? JSON.parse(booking.items) : booking.items,
       issued_at: new Date().toISOString()
     };
 
@@ -27,14 +26,20 @@ class QRService {
   static async generateQRCodeDataURL(tokenStr) {
     try {
       const qrDataUrl = await QRCode.toDataURL(tokenStr, {
-        errorCorrectionLevel: 'H',
+        errorCorrectionLevel: 'M',
         width: 300,
         margin: 2
       });
       return qrDataUrl;
     } catch (err) {
-      console.error('[QR Generation Error]', err);
-      throw err;
+      console.warn('[QR Generation Warning - Retrying with compact string]', err.message);
+      try {
+        // Fallback to compact QR string
+        return await QRCode.toDataURL(String(tokenStr).slice(0, 120), { errorCorrectionLevel: 'L', width: 300 });
+      } catch (err2) {
+        console.error('[QR Generation Fallback Error]', err2);
+        return null;
+      }
     }
   }
 

@@ -55,6 +55,38 @@ class AdminController {
   }
 
   /**
+   * Helper to fetch raw analytics data for Socket broadcast
+   */
+  static async getRawAnalyticsData() {
+    const totalCards = await db.query('SELECT COUNT(*) as count FROM ration_cards WHERE category != $1 AND category != $2', ['STAFF', 'ADMIN']);
+    const totalBookings = await db.query('SELECT COUNT(*) as count FROM bookings');
+    const totalIssued = await db.query("SELECT COUNT(*) as count FROM bookings WHERE status = 'ISSUED'");
+    const totalPending = await db.query("SELECT COUNT(*) as count FROM bookings WHERE status = 'BOOKED'");
+    
+    const totalRevenueRes = await db.query("SELECT SUM(amount) as total FROM transactions WHERE status = 'SUCCESS'");
+    const totalRevenue = parseFloat(totalRevenueRes.rows[0]?.total || 0);
+
+    const shopRes = await db.query("SELECT stock FROM shops WHERE shop_id = 'FPS-TN-0401'");
+    const stockObj = shopRes.rows[0] ? (typeof shopRes.rows[0].stock === 'string' ? JSON.parse(shopRes.rows[0].stock) : shopRes.rows[0].stock) : {};
+    
+    const lowStockAlerts = [];
+    for (const [itemId, qty] of Object.entries(stockObj)) {
+      if (qty < 500) {
+        lowStockAlerts.push({ itemId, currentStock: qty, threshold: 500 });
+      }
+    }
+
+    return {
+      total_registered_beneficiaries: parseInt(totalCards.rows[0]?.count || 0, 10),
+      total_bookings_created: parseInt(totalBookings.rows[0]?.count || 0, 10),
+      total_ration_issued: parseInt(totalIssued.rows[0]?.count || 0, 10),
+      pending_pickups: parseInt(totalPending.rows[0]?.count || 0, 10),
+      total_revenue_collected_inr: totalRevenue,
+      low_stock_alerts: lowStockAlerts
+    };
+  }
+
+  /**
    * Update Shop Inventory Stock
    */
   static async updateShopStock(req, res) {
@@ -65,6 +97,17 @@ class AdminController {
       }
 
       await db.query('UPDATE shops SET stock = $1 WHERE shop_id = $2', [JSON.stringify(new_stock), shop_id]);
+
+      // Emit socket stock update
+      try {
+        const socketService = require('../services/socketService');
+        socketService.emitStockUpdate(shop_id, new_stock);
+        const freshAnalytics = await AdminController.getRawAnalyticsData();
+        socketService.emitAnalyticsUpdate(freshAnalytics);
+      } catch (e) {
+        console.error('[Admin Stock Socket Emit Error]', e);
+      }
+
       return res.json({ success: true, message: 'Shop stock inventory updated successfully!', updated_stock: new_stock });
     } catch (error) {
       res.status(500).json({ success: false, error: 'Failed to update stock' });
