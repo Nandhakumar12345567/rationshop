@@ -2,6 +2,7 @@ const db = require('../config/db');
 const QRService = require('../services/qrService');
 const NotificationService = require('../services/notificationService');
 const socketService = require('../services/socketService');
+const { calculateItemEntitlement } = require('../services/entitlementService');
 
 const MAX_SLOT_CAPACITY = 20; // Maximum customers per time slot (20 tokens cap per hour)
 
@@ -133,7 +134,16 @@ class BookingController {
         }
       }
 
-      // 2. Entitlement Rule Check
+      // 2. Entitlement Rule Check (Scaled dynamically by Family Members)
+      let familySize = req.body.family_size ? parseInt(req.body.family_size, 10) : req.user.family_size;
+      if (!familySize && card_no) {
+        const cardRes = await db.query('SELECT family_size FROM ration_cards WHERE card_no = $1', [card_no]);
+        if (cardRes.rows.length > 0) {
+          familySize = cardRes.rows[0].family_size;
+        }
+      }
+      familySize = Math.max(1, parseInt(familySize, 10) || 1);
+
       const itemsResult = await db.query('SELECT * FROM items');
       const itemsMap = new Map();
       itemsResult.rows.forEach(it => itemsMap.set(it.item_id, it));
@@ -147,16 +157,13 @@ class BookingController {
           return res.status(400).json({ success: false, error: `Invalid item ID: ${reqItem.item_id}` });
         }
 
-        const categoryLimits = typeof itemDef.category_limit_rules === 'string'
-          ? JSON.parse(itemDef.category_limit_rules)
-          : itemDef.category_limit_rules;
-
-        const maxAllowed = categoryLimits[category] !== undefined ? categoryLimits[category] : 0;
+        const entitlement = calculateItemEntitlement(itemDef.item_id, category, familySize);
+        const maxAllowed = entitlement.quota;
 
         if (reqItem.quantity > maxAllowed) {
           return res.status(400).json({
             success: false,
-            error: `Requested quantity for ${itemDef.name} (${reqItem.quantity} ${itemDef.unit}) exceeds monthly limit for ${category} card (${maxAllowed} ${itemDef.unit}).`
+            error: `Requested quantity for ${itemDef.name} (${reqItem.quantity} ${itemDef.unit}) exceeds family quota (${entitlement.formulaText} = ${maxAllowed} ${itemDef.unit}).`
           });
         }
 

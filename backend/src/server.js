@@ -13,6 +13,17 @@ async function startServer() {
     const server = http.createServer(app);
     socketService.init(server);
 
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`\n❌ [PORT CONFLICT] Port ${PORT} is ALREADY IN USE!`);
+        console.error(`👉 The backend server is ALREADY RUNNING in another terminal tab.`);
+        console.error(`👉 To start the web frontend, run: npm run web (in Terminal 2)\n`);
+      } else {
+        console.error('[Smart Ration Server Error] Failed to start:', err);
+      }
+      process.exit(1);
+    });
+
     server.listen(PORT, () => {
       console.log(`==================================================`);
       console.log(` 🌾 SMART RATION REST API SERVER IS RUNNING`);

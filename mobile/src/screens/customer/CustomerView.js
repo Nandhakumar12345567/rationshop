@@ -9,8 +9,14 @@ import QRModal from '../../components/QRModal';
 import Footer from '../../components/Footer';
 import ItemImage from '../../components/ItemImage';
 import CardholderAvatar from '../../components/CardholderAvatar';
+import DigitalSmartCard from '../../components/DigitalSmartCard';
+import { getFamilyMembersForCount } from '../../utils/familyMembers';
 
 export default function CustomerView({ user, lang, profileImage, onImageSelected }) {
+  const cardRegisteredSize = user?.family_size ? parseInt(user.family_size, 10) : 4;
+  const [activeMemberCount, setActiveMemberCount] = useState(cardRegisteredSize);
+  const [displayedMembers, setDisplayedMembers] = useState(() => getFamilyMembersForCount(user, cardRegisteredSize));
+  const [selectedMemberIds, setSelectedMemberIds] = useState(() => getFamilyMembersForCount(user, cardRegisteredSize).map(m => m.id));
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [shopStock, setShopStock] = useState({});
@@ -77,11 +83,21 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
     };
   }, [selectedDate]);
 
-  const loadData = async () => {
+  useEffect(() => {
+    if (user?.family_size) {
+      const reg = parseInt(user.family_size, 10) || 4;
+      setActiveMemberCount(reg);
+      const members = getFamilyMembersForCount(user, reg);
+      setDisplayedMembers(members);
+      setSelectedMemberIds(members.map(m => m.id));
+    }
+  }, [user?.family_size, user?.card_no]);
+
+  const loadData = async (memberCount = activeMemberCount) => {
     setLoading(true);
     try {
       const [itemsRes, stockRes, bookingsRes] = await Promise.all([
-        api.getItems(),
+        api.getItems(memberCount),
         api.getShopStock(),
         api.getMyBookings()
       ]);
@@ -175,6 +191,149 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
   };
 
 
+  const handleSelectMemberCount = async (count) => {
+    const num = Math.max(1, Math.min(10, parseInt(count, 10) || 1));
+    setActiveMemberCount(num);
+    const freshMembers = getFamilyMembersForCount(user, num);
+    setDisplayedMembers(freshMembers);
+    setSelectedMemberIds(freshMembers.map(m => m.id));
+
+    try {
+      const itemsRes = await api.getItems(num);
+      const freshItems = itemsRes.items || [];
+      setItems(freshItems);
+
+      setSelectedQuantities(prev => {
+        const next = { ...prev };
+        freshItems.forEach(it => {
+          next[it.item_id] = it.monthly_entitlement;
+        });
+        return next;
+      });
+    } catch (err) {
+      console.error('[Select Member Count Error]', err);
+    }
+  };
+
+  const handleToggleMember = async (memberId) => {
+    let nextSelected;
+    if (selectedMemberIds.includes(memberId)) {
+      if (selectedMemberIds.length <= 1) {
+        alert(lang === 'ta' ? 'குறைந்தது 1 குடும்ப உறுப்பினரை தேர்ந்தெடுக்க வேண்டும்' : 'At least 1 family member must be included in quota allocation');
+        return;
+      }
+      nextSelected = selectedMemberIds.filter(id => id !== memberId);
+    } else {
+      nextSelected = [...selectedMemberIds, memberId];
+    }
+    setSelectedMemberIds(nextSelected);
+    const newCount = nextSelected.length;
+    setActiveMemberCount(newCount);
+
+    try {
+      const itemsRes = await api.getItems(newCount);
+      const freshItems = itemsRes.items || [];
+      setItems(freshItems);
+
+      setSelectedQuantities(prev => {
+        const next = { ...prev };
+        freshItems.forEach(it => {
+          const current = prev[it.item_id];
+          if (current === undefined || current > it.monthly_entitlement) {
+            next[it.item_id] = it.monthly_entitlement;
+          }
+        });
+        return next;
+      });
+    } catch (err) {
+      console.error('[Scale Members Quota Error]', err);
+    }
+  };
+
+  const handleSaveCardSize = async (size) => {
+    try {
+      const res = await api.updateFamilySize(size);
+      if (res.success) {
+        alert(lang === 'ta' 
+          ? `குடும்ப அட்டையில் உறுப்பினர்கள் எண்ணிக்கை ${size} என வெற்றிகரமாக மாற்றப்பட்டது!` 
+          : `Card registered family size updated to ${size} members!`);
+        if (user) user.family_size = size;
+      }
+    } catch (err) {
+      alert('Failed to update card size: ' + (err.message || err));
+    }
+  };
+
+  const handleItemQtyChange = (itemId, delta) => {
+    const item = items.find(it => it.item_id === itemId);
+    if (!item) return;
+    const max = item.monthly_entitlement || 0;
+    const current = selectedQuantities[itemId] !== undefined ? selectedQuantities[itemId] : max;
+    const step = itemId === 'ITEM-SUGAR' ? 0.5 : 1;
+    const nextVal = Math.max(0, Math.min(max, parseFloat((current + (delta * step)).toFixed(1))));
+    setSelectedQuantities(prev => ({
+      ...prev,
+      [itemId]: nextVal
+    }));
+  };
+
+  const handleToggleItemSelection = (itemId) => {
+    const item = items.find(it => it.item_id === itemId);
+    if (!item) return;
+    const current = selectedQuantities[itemId] || 0;
+    const max = item.monthly_entitlement || 0;
+    setSelectedQuantities(prev => ({
+      ...prev,
+      [itemId]: current > 0 ? 0 : max
+    }));
+  };
+
+  const handleSetMaxItem = (itemId) => {
+    const item = items.find(it => it.item_id === itemId);
+    if (!item) return;
+    setSelectedQuantities(prev => ({
+      ...prev,
+      [itemId]: item.monthly_entitlement || 0
+    }));
+  };
+
+  const handleSelectAllItems = () => {
+    const all = {};
+    items.forEach(it => {
+      all[it.item_id] = it.monthly_entitlement || 0;
+    });
+    setSelectedQuantities(all);
+  };
+
+  const handleClearAllItems = () => {
+    const empty = {};
+    items.forEach(it => {
+      empty[it.item_id] = 0;
+    });
+    setSelectedQuantities(empty);
+  };
+
+  const getSelectedItemsCount = () => {
+    return Object.values(selectedQuantities).filter(q => q > 0).length;
+  };
+
+  const getSelectedTotalWeight = () => {
+    let kg = 0;
+    let litres = 0;
+    items.forEach(it => {
+      const q = selectedQuantities[it.item_id] || 0;
+      if (it.unit === 'litre') {
+        litres += q;
+      } else {
+        kg += q;
+      }
+    });
+    const parts = [];
+    if (kg > 0) parts.push(`${kg} kg`);
+    if (litres > 0) parts.push(`${litres} L`);
+    return parts.join(' + ') || '0 kg';
+  };
+
   const calculateTotalBill = () => {
     let total = 0;
     items.forEach(it => {
@@ -190,23 +349,23 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
       .map(([item_id, quantity]) => ({ item_id, quantity }));
 
     if (bookedItems.length === 0) {
-      alert('Please select at least 1 entitlement item to book');
+      alert(lang === 'ta' ? 'குறைந்தது 1 பொருளை தேர்வு செய்யவும்' : 'Please select at least 1 entitlement item to book');
       return;
     }
 
     if (!selectedSlot) {
-      alert('Please select an available appointment time slot');
+      alert(lang === 'ta' ? 'தயவுசெய்து நேரத்தை (Slot) தேர்வு செய்யவும்' : 'Please select an available appointment time slot');
       return;
     }
 
     if (!selectedTokenNumber) {
-      alert('Please select your individual token number from the grid');
+      alert(lang === 'ta' ? 'தயவுசெய்து டோக்கன் எண்ணை தேர்வு செய்யவும்' : 'Please select your individual token number from the grid');
       return;
     }
 
     setSubmitting(true);
     try {
-      const res = await api.createBooking(bookedItems, selectedSlot, selectedTokenNumber);
+      const res = await api.createBooking(bookedItems, selectedSlot, selectedTokenNumber, selectedMemberIds.length);
       if (res.success) {
         const total = calculateTotalBill();
         if (total > 0) {
@@ -301,72 +460,14 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 20 }}>
-      {/* Formal Government Ration Card Summary Header */}
-      <View style={styles.cardHeader}>
-        <View style={styles.photoBox}>
-          <CardholderAvatar profileImage={profileImage} onImageSelected={onImageSelected} size={60} editable={true} />
-          <Text style={styles.photoLabel}>Tap photo to change</Text>
-        </View>
-
-        <View style={styles.headerDetails}>
-          <View style={styles.nameRow}>
-            <Text style={styles.holderName}>{user.holder_name}</Text>
-            <View style={[styles.categoryBadge, { backgroundColor: categoryBadge.bg }]}>
-              <Text style={[styles.categoryText, { color: categoryBadge.text }]}>{categoryBadge.label}</Text>
-            </View>
-          </View>
-
-          <Text style={styles.cardNo}>Ration Card No: <Text style={styles.cardNoHighlight}>{user.card_no}</Text></Text>
-          <Text style={styles.metaRow}>Family Members: <Text style={styles.boldMeta}>{user.family_size} Members</Text> | FPS Shop: <Text style={styles.boldMeta}>FPS #401 (T. Nagar)</Text></Text>
-          <Text style={styles.schemeTag}>Scheme: Tamil Nadu Smart PDS Card (NFSA 2013 Compliance)</Text>
-        </View>
-      </View>
-
-      {/* Real-time Socket Live Sync Status Indicator Banner */}
-      <View style={[styles.socketBanner, { backgroundColor: socketConnected ? '#F0FDF4' : '#FEFCE8', borderColor: socketConnected ? '#86EFAC' : '#FDE047' }]}>
-        <View style={[styles.socketDot, { backgroundColor: socketConnected ? '#22C55E' : '#EAB308' }]} />
-        <Text style={[styles.socketText, { color: socketConnected ? '#15803D' : '#A16207' }]}>
-          {socketConnected ? '⚡ Real-Time Socket.io Connected • Live Sync Active' : '🟡 Connecting Real-Time Socket.io Server...'}
-        </Text>
-      </View>
-
-      {/* Registered Family Members Detailed Breakdown Box */}
-      <View style={styles.familyMembersCard}>
-        <View style={styles.familyHeaderRow}>
-          <Text style={styles.familyTitle}>👨‍👩‍👧‍👦 Registered Family Members ({user.card_no === 'TN-04-AAY-109283' ? 5 : user.card_no === 'TN-04-APL-549102' ? 3 : 4})</Text>
-          <View style={styles.nfsaBadge}>
-            <Text style={styles.nfsaBadgeText}>✓ Aadhaar Linked</Text>
-          </View>
-        </View>
-
-        <View style={styles.familyGrid}>
-          {(user.card_no === 'TN-04-AAY-109283' ? [
-            { name: 'Priya Sundaram', relation: 'Head of Family', age: 45, gender: 'Female', icon: '👤' },
-            { name: 'Sundaram V', relation: 'Husband', age: 48, gender: 'Male', icon: '👨' },
-            { name: 'Kaviya Sundaram', relation: 'Daughter', age: 19, gender: 'Female', icon: '👧' },
-            { name: 'Arjun Sundaram', relation: 'Son', age: 14, gender: 'Male', icon: '👦' },
-            { name: 'Lakshmi Ammal', relation: 'Mother-in-law', age: 72, gender: 'Female', icon: '👵' }
-          ] : user.card_no === 'TN-04-APL-549102' ? [
-            { name: 'Karthik Subramanian', relation: 'Head of Family', age: 35, gender: 'Male', icon: '👤' },
-            { name: 'Divya Subramanian', relation: 'Wife', age: 32, gender: 'Female', icon: '👩' },
-            { name: 'Aarav Karthik', relation: 'Son', age: 6, gender: 'Male', icon: '👦' }
-          ] : [
-            { name: 'Ramesh Kumar', relation: 'Head of Family', age: 42, gender: 'Male', icon: '👤' },
-            { name: 'Sunita Kumar', relation: 'Wife', age: 38, gender: 'Female', icon: '👩' },
-            { name: 'Rahul Kumar', relation: 'Son', age: 16, gender: 'Male', icon: '👦' },
-            { name: 'Ananya Kumar', relation: 'Daughter', age: 12, gender: 'Female', icon: '👧' }
-          ]).map((member, idx) => (
-            <View key={idx} style={styles.memberPill}>
-              <Text style={styles.memberIcon}>{member.icon}</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.memberName}>{member.name}</Text>
-                <Text style={styles.memberMeta}>{member.relation} • {member.age} yrs ({member.gender})</Text>
-              </View>
-              <Text style={styles.aadhaarCheck}>✅ Linked</Text>
-            </View>
-          ))}
-        </View>
-      </View>
+      {/* Official Tamil Nadu Digital Smart Ration Card */}
+      <DigitalSmartCard 
+        user={user}
+        lang={lang}
+        profileImage={profileImage}
+        onImageSelected={onImageSelected}
+        socketConnected={socketConnected}
+      />
 
       {/* Live Queue Monitor Widget */}
       <View style={styles.queueWidget}>
@@ -398,35 +499,85 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
         </View>
       </View>
 
-      {/* Section Divider */}
-      <View style={styles.sectionDividerBar}>
-        <Text style={styles.sectionDividerText}>COMMODITY ENTITLEMENTS & STOCK INVENTORY</Text>
-      </View>
-
       {/* Item Selection & Monthly Entitlements */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🛒 Monthly Subsidised Entitlements</Text>
-        <Text style={styles.sectionSubtitle}>
-          Quantities are strictly auto-capped by your <Text style={{ fontWeight: '700', color: '#0B3D91' }}>{user.category}</Text> card allocation rules.
-        </Text>
+        <View style={styles.entitlementHeaderRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.sectionTitle}>
+              🛒 {lang === 'ta' ? 'மாதாந்திர மானியப் பொருட்கள்' : 'Monthly Subsidised Entitlements'}
+            </Text>
+            <Text style={styles.sectionSubtitle}>
+              {lang === 'ta' 
+                ? 'குடும்ப அட்டை உறுப்பினர்கள் எண்ணிக்கைக்கு ஏற்ப பொருட்கள் தானாக கணக்கிடப்பட்டு தேர்வு செய்யப்பட்டுள்ளது.' 
+                : 'Commodity quotas are automatically calculated according to card members.'}
+            </Text>
+          </View>
+        </View>
 
+        {/* Bulk Action Controls */}
+        <View style={styles.bulkActionsRow}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={styles.bulkActionCount}>
+              🛒 {getSelectedItemsCount()} of {items.length} {lang === 'ta' ? 'பொருட்கள் தேர்வு' : 'Items Selected'}
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <TouchableOpacity style={styles.bulkBtnPrimary} onPress={handleSelectAllItems} activeOpacity={0.7}>
+              <Text style={styles.bulkBtnPrimaryText}>✓ {lang === 'ta' ? 'முழு ஒதுக்கீடு' : 'Full Quota'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.bulkBtnSecondary} onPress={handleClearAllItems} activeOpacity={0.7}>
+              <Text style={styles.bulkBtnSecondaryText}>✕ {lang === 'ta' ? 'அனைத்தும் நீக்கு' : 'Clear All'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Commodity Cards with Checkbox, Formula Badge and Quantity Steppers */}
         {items.map((item) => {
-          const qty = selectedQuantities[item.item_id] || 0;
+          const qty = selectedQuantities[item.item_id] !== undefined ? selectedQuantities[item.item_id] : (item.monthly_entitlement || 0);
+          const isSelected = qty > 0;
+          const maxEntitlement = item.monthly_entitlement || 0;
           const availableStock = shopStock[item.item_id] || 500;
           const stockRatio = Math.min(100, Math.max(0, (availableStock / 1000) * 100));
+          const itemTotal = qty * (item.price_per_unit || 0);
 
           return (
-            <View key={item.item_id} style={styles.itemCard}>
+            <View key={item.item_id} style={[styles.itemCardNew, isSelected && styles.itemCardNewSelected]}>
+              {/* Checkbox Column */}
+              <TouchableOpacity 
+                style={styles.itemCheckboxArea}
+                onPress={() => handleToggleItemSelection(item.item_id)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.itemCheckbox, isSelected && styles.itemCheckboxChecked]}>
+                  {isSelected && <Text style={styles.itemCheckboxMark}>✓</Text>}
+                </View>
+              </TouchableOpacity>
+
+              {/* Item Image */}
               <View style={styles.itemIconContainer}>
-                <ItemImage itemId={item.item_id} size={60} />
+                <ItemImage itemId={item.item_id} size={54} />
               </View>
 
-              <View style={styles.itemInfo}>
-                <Text style={styles.itemName}>{item.name}</Text>
+              {/* Item Info & Member Formula */}
+              <View style={styles.itemInfoNew}>
+                <View style={styles.itemHeaderRow}>
+                  <Text style={styles.itemName}>{item.name}</Text>
+                </View>
+
+                {/* Member Allocation Formula Tag */}
+                <View style={styles.memberFormulaBadge}>
+                  <Text style={styles.memberFormulaIcon}>🧮</Text>
+                  <Text style={styles.memberFormulaText}>
+                    {lang === 'ta' ? (item.formula_text_ta || item.formula_text) : item.formula_text}
+                  </Text>
+                </View>
+
                 <Text style={styles.itemMeta}>
-                  Subsidised Rate: <Text style={styles.priceHighlight}>₹{item.price_per_unit}/{item.unit}</Text>
+                  {lang === 'ta' ? 'மானிய விலை' : 'Subsidised Rate'}: <Text style={styles.priceHighlight}>₹{item.price_per_unit}/{item.unit}</Text>
+                  {'  '}• Max: <Text style={{ fontWeight: '700', color: '#0B3D91' }}>{maxEntitlement} {item.unit}</Text>
                 </Text>
 
+                {/* Stock Progress */}
                 <View style={styles.stockProgressContainer}>
                   <View style={styles.stockProgressLabelRow}>
                     <Text style={styles.stockProgressText}>FPS Shop Inventory:</Text>
@@ -438,14 +589,92 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
                 </View>
               </View>
 
-              <View style={styles.qtyFixedBox}>
-                <Text style={styles.qtyFixedLabel}>Allocated Quota</Text>
-                <Text style={styles.qtyFixedVal}>{item.monthly_entitlement} {item.unit}</Text>
-                <Text style={styles.qtyFixedStatus}>✓ Capped</Text>
+              {/* Stepper Quantity Controls & Total */}
+              <View style={styles.qtyControlBox}>
+                <View style={styles.stepperRow}>
+                  <TouchableOpacity
+                    style={[styles.stepperBtn, (qty <= 0) && styles.stepperBtnDisabled]}
+                    onPress={() => handleItemQtyChange(item.item_id, -1)}
+                    disabled={qty <= 0}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.stepperBtnText, (qty <= 0) && styles.stepperBtnTextDisabled]}>−</Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.qtyValDisplay}>
+                    <Text style={styles.qtyValDisplayText}>{qty}</Text>
+                    <Text style={styles.qtyValDisplayUnit}>{item.unit}</Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.stepperBtn, (qty >= maxEntitlement) && styles.stepperBtnDisabled]}
+                    onPress={() => handleItemQtyChange(item.item_id, 1)}
+                    disabled={qty >= maxEntitlement}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.stepperBtnText, (qty >= maxEntitlement) && styles.stepperBtnTextDisabled]}>+</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.qtyFooterRow}>
+                  <TouchableOpacity 
+                    style={[styles.maxQuotaPill, (qty === maxEntitlement && maxEntitlement > 0) && styles.maxQuotaPillActive]}
+                    onPress={() => handleSetMaxItem(item.item_id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.maxQuotaPillText, (qty === maxEntitlement && maxEntitlement > 0) && styles.maxQuotaPillTextActive]}>
+                      {qty === maxEntitlement ? '✓ Max' : 'Max'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.itemCostText}>
+                    {itemTotal === 0 ? 'FREE' : `₹${itemTotal.toFixed(2)}`}
+                  </Text>
+                </View>
               </View>
             </View>
           );
         })}
+
+        {/* Selected Ration Basket Live Summary */}
+        <View style={styles.rationBasketSummary}>
+          <View style={styles.basketSummaryHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.basketSummaryTitle}>
+                📦 {lang === 'ta' ? 'தேர்வு செய்யப்பட்ட பொருட்கள் விவரம்' : 'Selected Commodities Summary'}
+              </Text>
+              <Text style={styles.basketSummarySub}>
+                {lang === 'ta' 
+                  ? `${selectedMemberIds.length} குடும்ப உறுப்பினர்களுக்கான ஒதுக்கீடு` 
+                  : `Validated for ${selectedMemberIds.length} active family members`}
+              </Text>
+            </View>
+            <View style={styles.basketWeightBadge}>
+              <Text style={styles.basketWeightText}>⚖️ {getSelectedTotalWeight()}</Text>
+            </View>
+          </View>
+
+          <View style={styles.basketPillsContainer}>
+            {items.filter(it => (selectedQuantities[it.item_id] || 0) > 0).map(it => {
+              const q = selectedQuantities[it.item_id];
+              return (
+                <View key={it.item_id} style={styles.basketItemPill}>
+                  <Text style={styles.basketItemPillName}>{it.name.split('(')[0].trim()}:</Text>
+                  <Text style={styles.basketItemPillQty}>{q} {it.unit}</Text>
+                </View>
+              );
+            })}
+          </View>
+
+          <View style={styles.basketFooterRow}>
+            <Text style={styles.basketSubtext}>
+              {lang === 'ta' ? 'மொத்த செலுத்த வேண்டிய தொகை:' : 'Total Payable Amount:'}
+            </Text>
+            <Text style={styles.basketTotalAmount}>
+              {calculateTotalBill() === 0 ? (lang === 'ta' ? 'இலவசம் (FREE)' : 'FREE (₹0.00)') : `₹${calculateTotalBill().toFixed(2)}`}
+            </Text>
+          </View>
+        </View>
       </View>
 
       {/* Appointment Slot Booking Picker & Token Selector */}
@@ -1332,6 +1561,523 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0'
+  },
+  entitlementHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8
+  },
+  activeMembersBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#86EFAC'
+  },
+  activeMembersBadgeText: {
+    color: '#15803D',
+    fontSize: 11,
+    fontWeight: '800'
+  },
+  memberScaleCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1.5,
+    borderColor: '#93C5FD'
+  },
+  memberScaleHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#DBEAFE',
+    paddingBottom: 6
+  },
+  memberScaleTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1E3A8A'
+  },
+  memberScaleSub: {
+    fontSize: 10,
+    color: '#475569',
+    marginTop: 2
+  },
+  memberScaleCountBadge: {
+    backgroundColor: '#1E40AF',
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    minWidth: 54
+  },
+  memberScaleCountNum: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#FFFFFF'
+  },
+  memberScaleCountLabel: {
+    fontSize: 8,
+    color: '#BFDBFE',
+    fontWeight: '700'
+  },
+  memberSelectorContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#BFDBFE'
+  },
+  memberSelectorLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8
+  },
+  memberSelectorLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1E3A8A'
+  },
+  resetToDefaultBtn: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#93C5FD'
+  },
+  resetToDefaultBtnText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#1D4ED8'
+  },
+  memberCountScroll: {
+    flexDirection: 'row',
+    paddingVertical: 4
+  },
+  verifiedGovBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#86EFAC'
+  },
+  verifiedGovBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#15803D'
+  },
+  memberChipOfficial: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1.5,
+    borderColor: '#BFDBFE',
+    minWidth: '48%',
+    flex: 1,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.02,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 }
+  },
+  memberAvatarCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#0B3D91',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#93C5FD'
+  },
+  memberAvatarNum: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF'
+  },
+  memberChipNameOfficial: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0F172A'
+  },
+  memberChipRelationOfficial: {
+    fontSize: 9.5,
+    color: '#475569',
+    marginTop: 1
+  },
+  memberAadhaarBadge: {
+    marginTop: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: '#F0FDF4',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: '#BBF7D0'
+  },
+  memberAadhaarBadgeText: {
+    fontSize: 8.5,
+    fontWeight: '700',
+    color: '#166534'
+  },
+  memberListHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8
+  },
+  memberChipHelp: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1E3A8A'
+  },
+  memberChipsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6
+  },
+  memberChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    minWidth: '48%',
+    flex: 1
+  },
+  memberChipActive: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#3B82F6'
+  },
+  memberChipCheck: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: '#94A3B8',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8
+  },
+  memberChipCheckActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB'
+  },
+  memberChipCheckText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#FFFFFF'
+  },
+  memberChipCheckTextActive: {
+    color: '#FFFFFF'
+  },
+  memberChipName: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569'
+  },
+  memberChipNameActive: {
+    color: '#1E3A8A',
+    fontWeight: '800'
+  },
+  memberChipRelation: {
+    fontSize: 9,
+    color: '#64748B',
+    marginTop: 1
+  },
+  memberScaleFormulaNote: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 6,
+    padding: 6,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A'
+  },
+  memberScaleFormulaNoteText: {
+    fontSize: 9.5,
+    color: '#92400E',
+    fontWeight: '600'
+  },
+  bulkActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6
+  },
+  bulkActionCount: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155'
+  },
+  bulkBtnPrimary: {
+    backgroundColor: '#15803D',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 4
+  },
+  bulkBtnPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800'
+  },
+  bulkBtnSecondary: {
+    backgroundColor: '#E2E8F0',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4
+  },
+  bulkBtnSecondaryText: {
+    color: '#475569',
+    fontSize: 10,
+    fontWeight: '700'
+  },
+  itemCardNew: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 }
+  },
+  itemCardNewSelected: {
+    borderColor: '#16A34A',
+    backgroundColor: '#FAFCFA'
+  },
+  itemCheckboxArea: {
+    paddingRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  itemCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#94A3B8',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF'
+  },
+  itemCheckboxChecked: {
+    backgroundColor: '#16A34A',
+    borderColor: '#16A34A'
+  },
+  itemCheckboxMark: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900'
+  },
+  itemInfoNew: {
+    flex: 1,
+    paddingRight: 6
+  },
+  itemHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  memberFormulaBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    marginVertical: 3,
+    alignSelf: 'flex-start'
+  },
+  memberFormulaIcon: {
+    fontSize: 9,
+    marginRight: 3
+  },
+  memberFormulaText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#166534'
+  },
+  qtyControlBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 100
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    overflow: 'hidden'
+  },
+  stepperBtn: {
+    width: 28,
+    height: 30,
+    backgroundColor: '#E2E8F0',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  stepperBtnDisabled: {
+    backgroundColor: '#F1F5F9',
+    opacity: 0.4
+  },
+  stepperBtnText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A'
+  },
+  stepperBtnTextDisabled: {
+    color: '#94A3B8'
+  },
+  qtyValDisplay: {
+    minWidth: 44,
+    alignItems: 'center',
+    paddingHorizontal: 4
+  },
+  qtyValDisplayText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#0F172A'
+  },
+  qtyValDisplayUnit: {
+    fontSize: 8,
+    color: '#64748B',
+    fontWeight: '700'
+  },
+  qtyFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginTop: 4,
+    paddingHorizontal: 2
+  },
+  maxQuotaPill: {
+    backgroundColor: '#E0E7FF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4
+  },
+  maxQuotaPillActive: {
+    backgroundColor: '#DCFCE7'
+  },
+  maxQuotaPillText: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    color: '#3730A3'
+  },
+  maxQuotaPillTextActive: {
+    color: '#166534'
+  },
+  itemCostText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#138808'
+  },
+  rationBasketSummary: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+    borderWidth: 1.5,
+    borderColor: '#86EFAC'
+  },
+  basketSummaryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6
+  },
+  basketSummaryTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#166534'
+  },
+  basketSummarySub: {
+    fontSize: 9,
+    color: '#475569',
+    marginTop: 1
+  },
+  basketWeightBadge: {
+    backgroundColor: '#166534',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6
+  },
+  basketWeightText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFFFFF'
+  },
+  basketPillsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginBottom: 6
+  },
+  basketItemPill: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#BBF7D0'
+  },
+  basketItemPillName: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#334155',
+    marginRight: 3
+  },
+  basketItemPillQty: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#15803D'
+  },
+  basketFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#BBF7D0',
+    paddingTop: 6
+  },
+  basketSubtext: {
+    fontSize: 10,
+    color: '#166534',
+    fontWeight: '700'
+  },
+  basketTotalAmount: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#15803D'
   },
   itemIconContainer: {
     marginRight: 10

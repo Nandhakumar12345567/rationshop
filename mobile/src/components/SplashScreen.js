@@ -101,18 +101,13 @@ export default function SplashScreen({ onFinish }) {
       </View>
 
       <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
-        {/* Official Tamil Nadu Government Seal Circle Badge */}
+        {/* Official Tamil Nadu Government Emblem */}
         <View style={styles.emblemWrapper}>
-          <View style={styles.emblemRing}>
-            <Image 
-              source={TN_EMBLEM_ASSET} 
-              style={styles.emblemImg} 
-              resizeMode="cover" 
-            />
-          </View>
-          <View style={styles.officialSealBadge}>
-            <Text style={styles.officialSealText}>✓ OFFICIAL GOVT SEAL</Text>
-          </View>
+          <Image 
+            source={TN_EMBLEM_ASSET} 
+            style={styles.emblemImg} 
+            resizeMode="contain" 
+          />
         </View>
 
         {/* Official Department Titles */}
@@ -124,13 +119,13 @@ export default function SplashScreen({ onFinish }) {
 
         {/* App Portal Branding Card */}
         <View style={styles.appCard}>
-          <AppLogo size={46} dark={false} />
+          <AppLogo size={46} dark={true} />
           <Text style={styles.appDescText}>Smart Public Distribution System (Smart PDS) Beneficiary Portal</Text>
         </View>
 
         {/* Loading Progress Telemetry */}
         <View style={styles.loaderBox}>
-          <ActivityIndicator size="large" color="#FF9933" />
+          <ActivityIndicator size="large" color="#166534" />
           <Text style={styles.loaderText}>Initializing Secure PDS Server Connection...</Text>
           <Text style={styles.loaderSub}>SSL 256-bit Encrypted Government Session Active 🔒</Text>
         </View>
@@ -151,7 +146,7 @@ export default function SplashScreen({ onFinish }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#061E47',
+    backgroundColor: '#E8F5E9',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 12,
@@ -188,82 +183,50 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     position: 'relative'
   },
-  emblemRing: {
-    width: 145,
-    height: 145,
-    borderRadius: 72.5,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3.5,
-    borderColor: '#FF9933',
-    overflow: 'hidden',
-    shadowColor: '#FF9933',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.45,
-    shadowRadius: 14,
-    elevation: 12
-  },
   emblemImg: {
-    width: '102%',
-    height: '102%'
-  },
-  officialSealBadge: {
-    position: 'absolute',
-    bottom: -10,
-    backgroundColor: '#061E47',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FF9933',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 4
-  },
-  officialSealText: {
-    color: '#FF9933',
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 0.5
+    width: 140,
+    height: 140
   },
   headerBlock: {
     alignItems: 'center',
     marginBottom: 16
   },
   govtHeader: {
-    color: '#FF9933',
-    fontSize: 14,
+    color: '#065F46',
+    fontSize: 15,
     fontWeight: '900',
     letterSpacing: 1.5,
     textAlign: 'center',
     marginBottom: 4
   },
   deptHeader: {
-    color: '#FFFFFF',
+    color: '#1E293B',
     fontSize: 13,
     fontWeight: '700',
     textAlign: 'center'
   },
 
   appCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
     alignItems: 'center',
     width: '100%',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 153, 51, 0.3)',
-    marginBottom: 16
+    borderWidth: 1.5,
+    borderColor: '#A7F3D0',
+    shadowColor: '#15803D',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 4,
+    marginBottom: 18
   },
   appDescText: {
-    color: '#93C5FD',
-    fontSize: 10,
+    color: '#475569',
+    fontSize: 11,
     fontWeight: '600',
-    marginTop: 6,
+    marginTop: 8,
     textAlign: 'center'
   },
   loaderBox: {
@@ -272,17 +235,17 @@ const styles = StyleSheet.create({
     marginBottom: 16
   },
   loaderText: {
-    color: '#FFFFFF',
+    color: '#0F172A',
     fontSize: 12,
     marginTop: 10,
-    fontWeight: '700',
+    fontWeight: '800',
     textAlign: 'center'
   },
   loaderSub: {
-    color: '#86EFAC',
+    color: '#166534',
     fontSize: 10,
-    marginTop: 3,
-    fontWeight: '600',
+    marginTop: 4,
+    fontWeight: '700',
     textAlign: 'center'
   },
   mottoBadge: {

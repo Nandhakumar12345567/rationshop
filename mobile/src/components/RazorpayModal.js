@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, ScrollView } from 'react-native';
+import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, ScrollView, Linking, Platform } from 'react-native';
 
 const PAYMENT_ASSETS = {
   gpay: require('../../assets/payments/gpay.png'),
@@ -42,8 +42,22 @@ export default function RazorpayModal({ visible, onClose, booking, onPaymentSucc
 
   const totalAmount = booking.items ? booking.items.reduce((sum, item) => sum + (item.total_price || 0), 0) : 0;
 
-  const handlePay = () => {
+  const handlePay = async () => {
     setProcessing(true);
+
+    // Try to deep link into real Google Pay / UPI App on mobile devices
+    if (Platform.OS !== 'web' && currentMethodObj?.type === 'UPI') {
+      const upiUrl = `upi://pay?pa=${encodeURIComponent(upiId || 'tnpds@okaxis')}&pn=TNPDS_Ration_Shop&tr=${booking.booking_id}&am=${totalAmount}&cu=INR`;
+      try {
+        const supported = await Linking.canOpenURL(upiUrl);
+        if (supported) {
+          await Linking.openURL(upiUrl);
+        }
+      } catch (e) {
+        console.warn('[UPI DeepLink Warning]', e);
+      }
+    }
+
     setTimeout(() => {
       setProcessing(false);
       onPaymentSuccess({

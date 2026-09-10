@@ -1,4 +1,29 @@
-const API_BASE_URL = 'http://localhost:5000/api';
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+
+const getApiBaseUrl = () => {
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+      return `http://${window.location.hostname}:5000/api`;
+    }
+    return 'http://localhost:5000/api';
+  }
+
+  // Native Mobile App (Android / iOS)
+  const hostUri = Constants.expoConfig?.hostUri || Constants.manifest?.debuggerHost || '';
+  if (hostUri) {
+    const ip = hostUri.split(':')[0];
+    if (ip && !ip.includes('ngrok') && !ip.includes('expo') && ip !== 'localhost' && ip !== '127.0.0.1') {
+      return `http://${ip}:5000/api`;
+    }
+  }
+
+  // Computer Local Wi-Fi IPv4 Fallback
+  return 'http://192.168.6.112:5000/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
+console.log('[API Client] Connected API Base URL:', API_BASE_URL);
 
 let userToken = null;
 
@@ -28,6 +53,9 @@ async function request(endpoint, options = {}) {
     return data;
   } catch (error) {
     console.error(`[API Error] ${endpoint}:`, error);
+    if (error.message && (error.message.includes('Network request failed') || error.message.includes('Failed to fetch'))) {
+      throw new Error(`Cannot connect to backend server at ${API_BASE_URL}. Ensure backend is running and phone & PC are on the same Wi-Fi network.`);
+    }
     throw error;
   }
 }
@@ -35,18 +63,20 @@ async function request(endpoint, options = {}) {
 export const api = {
   // Auth
   login: (card_no, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ card_no, password }) }),
-  sendOtp: (card_no) => request('/auth/send-otp', { method: 'POST', body: JSON.stringify({ card_no }) }),
-  verifyOtp: (card_no, otp) => request('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ card_no, otp }) }),
+  qrLogin: (qr_data, card_no) => request('/auth/qr-login', { method: 'POST', body: JSON.stringify({ qr_data, card_no }) }),
+  sendOtp: (param) => request('/auth/send-otp', { method: 'POST', body: JSON.stringify(typeof param === 'string' ? (param.startsWith('TN-') || param.startsWith('SHOP-') || param.startsWith('ADMIN-') ? { card_no: param } : { phone: param }) : param) }),
+  verifyOtp: (param, otp) => request('/auth/verify-otp', { method: 'POST', body: JSON.stringify(typeof param === 'string' ? (param.startsWith('TN-') || param.startsWith('SHOP-') || param.startsWith('ADMIN-') ? { card_no: param, otp } : { phone: param, otp }) : { ...param, otp }) }),
   getMe: () => request('/auth/me'),
   changePassword: (old_password, new_password) => request('/auth/change-password', { method: 'POST', body: JSON.stringify({ old_password, new_password }) }),
+  updateFamilySize: (family_size) => request('/auth/update-family-size', { method: 'POST', body: JSON.stringify({ family_size }) }),
 
   // Items & Stock
-  getItems: () => request('/items'),
+  getItems: (familySize) => request(familySize ? `/items?family_size=${familySize}` : '/items'),
   getShopStock: (shopId = 'FPS-TN-0401') => request(`/items/shop-stock/${shopId}`),
 
   // Bookings
   getSlots: (date) => request(`/bookings/slots?date=${date || ''}`),
-  createBooking: (items, slot_time, token_number) => request('/bookings/create', { method: 'POST', body: JSON.stringify({ items, slot_time, token_number }) }),
+  createBooking: (items, slot_time, token_number, family_size) => request('/bookings/create', { method: 'POST', body: JSON.stringify({ items, slot_time, token_number, family_size }) }),
   cancelBooking: (booking_id) => request('/bookings/cancel', { method: 'POST', body: JSON.stringify({ booking_id }) }),
   getMyBookings: () => request('/bookings/my-bookings'),
   getBookingById: (id) => request(`/bookings/${id}`),

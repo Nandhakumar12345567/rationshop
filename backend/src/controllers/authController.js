@@ -62,27 +62,36 @@ class AuthController {
   }
 
   /**
-   * Send OTP fallback
+   * Send OTP to Phone Number or Ration Card Number
    */
   static async sendOtp(req, res) {
     try {
-      const { card_no } = req.body;
-      if (!card_no) {
-        return res.status(400).json({ success: false, error: 'Ration card number required' });
+      const { card_no, phone } = req.body;
+      const lookup = (phone || card_no || '').trim();
+      if (!lookup) {
+        return res.status(400).json({ success: false, error: 'Mobile phone number or Ration Card number required' });
       }
 
-      const result = await db.query('SELECT * FROM ration_cards WHERE card_no = $1', [card_no.trim()]);
+      const result = await db.query(
+        'SELECT * FROM ration_cards WHERE phone = $1 OR card_no = $1',
+        [lookup]
+      );
       if (result.rows.length === 0) {
-        return res.status(404).json({ success: false, error: 'Ration card not registered' });
+        return res.status(404).json({ success: false, error: 'Mobile number or Ration card is not registered in PDS system' });
       }
 
       const card = result.rows[0];
-      const mockOtp = '123456'; // Standard mock OTP for testing
-      otpStore.set(card.card_no, { otp: mockOtp, expiresAt: Date.now() + 5 * 60 * 1000 });
+      const mockOtp = '123456'; // Standard mock OTP for instant authentication
+      
+      otpStore.set(card.phone, { otp: mockOtp, card_no: card.card_no, expiresAt: Date.now() + 10 * 60 * 1000 });
+      otpStore.set(card.card_no, { otp: mockOtp, card_no: card.card_no, expiresAt: Date.now() + 10 * 60 * 1000 });
 
       return res.json({
         success: true,
-        message: `OTP sent successfully to registered phone ending in ${card.phone.slice(-4)}`,
+        message: `OTP sent successfully to registered mobile ending in ${card.phone.slice(-4)}`,
+        phone: card.phone,
+        card_no: card.card_no,
+        holder_name: card.holder_name,
         debugOtp: mockOtp
       });
     } catch (error) {
@@ -92,21 +101,31 @@ class AuthController {
   }
 
   /**
-   * Verify OTP fallback
+   * Verify OTP from Phone Number or Ration Card Number
    */
   static async verifyOtp(req, res) {
     try {
-      const { card_no, otp } = req.body;
-      if (!card_no || !otp) {
-        return res.status(400).json({ success: false, error: 'Card number and OTP are required' });
+      const { card_no, phone, otp } = req.body;
+      const key = (phone || card_no || '').trim();
+      if (!key || !otp) {
+        return res.status(400).json({ success: false, error: 'Phone number / Card number and OTP are required' });
       }
 
-      const record = otpStore.get(card_no);
-      if (!record || record.otp !== otp || Date.now() > record.expiresAt) {
-        return res.status(400).json({ success: false, error: 'Invalid or expired OTP' });
+      const record = otpStore.get(key);
+      const isDefaultTestOtp = (otp.trim() === '123456');
+
+      if ((!record || record.otp !== otp.trim()) && !isDefaultTestOtp) {
+        return res.status(400).json({ success: false, error: 'Invalid or expired OTP. Please try 123456' });
       }
 
-      const result = await db.query('SELECT * FROM ration_cards WHERE card_no = $1', [card_no]);
+      const targetLookup = record ? record.card_no : key;
+      const result = await db.query(
+        'SELECT * FROM ration_cards WHERE card_no = $1 OR phone = $1',
+        [targetLookup]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Beneficiary card not found' });
+      }
       const card = result.rows[0];
 
       const token = jwt.sign(
@@ -121,7 +140,9 @@ class AuthController {
         { expiresIn: '30d' }
       );
 
-      otpStore.delete(card_no);
+      otpStore.delete(key);
+      if (card.phone) otpStore.delete(card.phone);
+      if (card.card_no) otpStore.delete(card.card_no);
 
       return res.json({
         success: true,
@@ -137,6 +158,79 @@ class AuthController {
     } catch (error) {
       console.error('[Verify OTP Error]', error);
       res.status(500).json({ success: false, error: 'OTP verification failed' });
+    }
+  }
+
+  /**
+   * Instant Smart Card / QR Scanner Login
+   */
+  static async qrLogin(req, res) {
+    try {
+      const { qr_data, card_no } = req.body;
+      let rawData = (card_no || qr_data || '').trim();
+      let targetCardNo = rawData;
+
+      // Extract card number if payload is JSON or contains card_no key
+      if (rawData.startsWith('{') || rawData.includes('card_no')) {
+        try {
+          const parsed = JSON.parse(rawData);
+          targetCardNo = (parsed.card_no || parsed.cardNo || parsed.id || '').trim();
+        } catch {
+          const match = rawData.match(/TN-[0-9A-Za-z-]+|SHOP-[0-9A-Za-z-]+|ADMIN-[0-9A-Za-z-]+/);
+          if (match) targetCardNo = match[0];
+        }
+      } else if (qr_data && (qr_data.startsWith('{') || qr_data.includes('card_no'))) {
+        try {
+          const parsed = JSON.parse(qr_data);
+          targetCardNo = (parsed.card_no || parsed.cardNo || parsed.id || '').trim();
+        } catch {
+          const match = qr_data.match(/TN-[0-9A-Za-z-]+|SHOP-[0-9A-Za-z-]+|ADMIN-[0-9A-Za-z-]+/);
+          if (match) targetCardNo = match[0];
+        }
+      } else {
+        const match = rawData.match(/TN-[0-9A-Za-z-]+|SHOP-[0-9A-Za-z-]+|ADMIN-[0-9A-Za-z-]+/);
+        if (match) targetCardNo = match[0];
+      }
+
+      if (!targetCardNo) {
+        return res.status(400).json({ success: false, error: 'Valid QR Code or Smart Card data is required' });
+      }
+
+      const result = await db.query(
+        'SELECT * FROM ration_cards WHERE card_no = $1 OR phone = $1',
+        [targetCardNo]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, error: `Smart Card (${targetCardNo}) not recognized in PDS registry` });
+      }
+
+      const card = result.rows[0];
+      const token = jwt.sign(
+        {
+          card_no: card.card_no,
+          holder_name: card.holder_name,
+          category: card.category,
+          family_size: card.family_size,
+          phone: card.phone
+        },
+        JWT_SECRET,
+        { expiresIn: '30d' }
+      );
+
+      return res.json({
+        success: true,
+        token,
+        user: {
+          card_no: card.card_no,
+          holder_name: card.holder_name,
+          category: card.category,
+          family_size: card.family_size,
+          phone: card.phone
+        }
+      });
+    } catch (error) {
+      console.error('[QR Login Error]', error);
+      res.status(500).json({ success: false, error: 'QR Authentication failed' });
     }
   }
 
@@ -187,6 +281,31 @@ class AuthController {
     } catch (error) {
       console.error('[Change Password Error]', error);
       res.status(500).json({ success: false, error: 'Failed to update password' });
+    }
+  }
+
+  /**
+   * Update Card Family Size in Database
+   */
+  static async updateFamilySize(req, res) {
+    try {
+      const { family_size } = req.body;
+      const { card_no } = req.user;
+      const size = parseInt(family_size, 10);
+      if (!size || size < 1 || size > 15) {
+        return res.status(400).json({ success: false, error: 'Family size must be between 1 and 15' });
+      }
+
+      await db.query('UPDATE ration_cards SET family_size = $1 WHERE card_no = $2', [size, card_no]);
+
+      return res.json({
+        success: true,
+        message: `Card registered family size successfully set to ${size} members!`,
+        family_size: size
+      });
+    } catch (error) {
+      console.error('[Update Family Size Error]', error);
+      res.status(500).json({ success: false, error: 'Failed to update card family size' });
     }
   }
 }

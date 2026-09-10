@@ -10,7 +10,7 @@ export default function GovEmblem({ size = 40, showTitle = false }) {
         <Image 
           source={TN_EMBLEM_ASSET} 
           style={styles.image} 
-          resizeMode="cover" 
+          resizeMode="contain" 
           accessibilityLabel="Official Government of Tamil Nadu Emblem"
         />
       </View>

@@ -10,7 +10,7 @@ DELETE FROM ration_cards;
 -- Password for all seed users is 'password123'
 -- Bcrypt hash: $2a$10$w099z5ZcMv4G18z/J2l/d.Fj.L/aO9o4dE2vB0nS3i2K.0gK3i0y6
 INSERT INTO ration_cards (card_no, holder_name, category, family_size, password_hash, phone) VALUES
-('TN-04-BPL-883921', 'Ramesh Kumar', 'BPL', 4, '$2a$10$w099z5ZcMv4G18z/J2l/d.Fj.L/aO9o4dE2vB0nS3i2K.0gK3i0y6', '9876543210'),
+('TN-04-BPL-883921', 'Ramesh Kumar', 'BPL', 6, '$2a$10$w099z5ZcMv4G18z/J2l/d.Fj.L/aO9o4dE2vB0nS3i2K.0gK3i0y6', '9876543210'),
 ('TN-04-AAY-109283', 'Priya Sundaram', 'Antyodaya', 5, '$2a$10$w099z5ZcMv4G18z/J2l/d.Fj.L/aO9o4dE2vB0nS3i2K.0gK3i0y6', '9876543211'),
 ('TN-04-APL-549102', 'Karthik Subramanian', 'APL', 3, '$2a$10$w099z5ZcMv4G18z/J2l/d.Fj.L/aO9o4dE2vB0nS3i2K.0gK3i0y6', '9876543212'),
 ('SHOP-STAFF-001', 'Velu (FPS #401 Staff)', 'STAFF', 1, '$2a$10$w099z5ZcMv4G18z/J2l/d.Fj.L/aO9o4dE2vB0nS3i2K.0gK3i0y6', '9876543213'),
