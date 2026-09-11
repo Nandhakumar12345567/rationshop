@@ -157,6 +157,7 @@ export default function DigitalSmartCard({ user, lang = 'en', profileImage, onIm
                 <View style={styles.photoBorderFrameGreen}>
                   <CardholderAvatar 
                     profileImage={profileImage} 
+                    user={user}
                     onImageSelected={onImageSelected} 
                     size={isMobile ? 74 : 84} 
                     editable={true} 
