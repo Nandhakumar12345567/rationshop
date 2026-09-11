@@ -24,6 +24,7 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
   const [items, setItems] = useState([]);
   const [shopStock, setShopStock] = useState({});
   const [selectedQuantities, setSelectedQuantities] = useState({});
+  const [currentStep, setCurrentStep] = useState(1); // 1: Card, 2: Items, 3: Slot & Token, 4: Active Tokens & Receipt
   
   // Date, Slot & Custom Token Number State
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -395,7 +396,8 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
         if (total > 0) {
           setPaymentBooking(res.booking);
         } else {
-          // Auto open QR modal for free bookings
+          // Auto open QR modal for free bookings and switch to Step 4
+          setCurrentStep(4);
           viewTokenDetails(res.booking.booking_id);
           loadData();
         }
@@ -436,6 +438,7 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
       await api.verifyPayment(paymentBooking.booking_id, paymentDetails.razorpay_order_id, paymentDetails.razorpay_payment_id);
       const targetBookingId = paymentBooking.booking_id;
       setPaymentBooking(null);
+      setCurrentStep(4);
       
       // Auto open QR Token Pass Modal immediately after successful payment
       await viewTokenDetails(targetBookingId);
@@ -494,48 +497,124 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
   const selectedSlotObj = slots.find(s => s.slot_time === selectedSlot) || (slots.length > 0 ? slots[0] : null);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 20 }}>
-      {/* Official Tamil Nadu Digital Smart Ration Card */}
-      <DigitalSmartCard 
-        user={user}
-        lang={lang}
-        profileImage={profileImage}
-        onImageSelected={onImageSelected}
-        socketConnected={socketConnected}
-      />
-
-      {/* Live Queue Monitor Widget */}
-      <View style={styles.queueWidget}>
-        <View style={styles.queueWidgetHeader}>
-          <Text style={styles.queueWidgetTitle}>⚡ LIVE FPS QUEUE MONITOR (FPS #401)</Text>
-          <View style={styles.liveIndicator}>
-            <View style={styles.pulseDot} />
-            <Text style={styles.liveIndicatorText}>LIVE UPDATES</Text>
-          </View>
-        </View>
-
-        <View style={styles.queueWidgetBody}>
-          <View style={styles.queueStatBox}>
-            <Text style={styles.queueStatLabel}>Now Serving Slot:</Text>
-            <Text style={styles.queueStatVal}>{queueStatus?.current_slot || '10:00 AM - 11:00 AM'}</Text>
-          </View>
-
-          <View style={styles.queueStatBox}>
-            <Text style={styles.queueStatLabel}>Active Serving Token:</Text>
-            <Text style={styles.queueStatHighlight}>Token #{queueStatus?.serving_token_number || 1} of 20</Text>
-          </View>
-
-          <View style={styles.queueStatBox}>
-            <Text style={styles.queueStatLabel}>Tokens Ahead of You:</Text>
-            <Text style={styles.queueStatValBold}>
-              {queueStatus?.tokens_ahead !== undefined ? `${queueStatus.tokens_ahead} token(s)` : '0 token(s)'}
-            </Text>
-          </View>
-        </View>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 30 }}>
+      {/* Interactive 4-Step Progress Stepper Header */}
+      <View style={styles.stepperContainer}>
+        {[
+          { step: 1, label: lang === 'ta' ? 'அட்டை' : 'Card', icon: '🪪' },
+          { step: 2, label: lang === 'ta' ? 'பொருட்கள்' : 'Items', icon: '🌾' },
+          { step: 3, label: lang === 'ta' ? 'ஸ்லாட்' : 'Slot', icon: '🗓️' },
+          { step: 4, label: lang === 'ta' ? 'ரசீது' : 'Pass', icon: '🎟️', badge: activeBookings.length > 0 ? activeBookings.length : null }
+        ].map((s, idx, arr) => {
+          const isActive = currentStep === s.step;
+          const isCompleted = currentStep > s.step;
+          return (
+            <React.Fragment key={s.step}>
+              <TouchableOpacity 
+                style={[styles.stepItem, isActive && styles.stepItemActive]}
+                onPress={() => setCurrentStep(s.step)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.stepCircle, isActive && styles.stepCircleActive, isCompleted && styles.stepCircleCompleted]}>
+                  <Text style={[styles.stepCircleText, (isActive || isCompleted) && styles.stepCircleTextActive]}>
+                    {isCompleted ? '✓' : s.step}
+                  </Text>
+                </View>
+                <Text style={[styles.stepLabel, isActive && styles.stepLabelActive]}>
+                  {s.icon} {s.label}
+                </Text>
+                {s.badge && (
+                  <View style={styles.stepBadgePill}>
+                    <Text style={styles.stepBadgePillText}>{s.badge}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              {idx < arr.length - 1 && (
+                <View style={[styles.stepConnectorLine, isCompleted && styles.stepConnectorLineCompleted]} />
+              )}
+            </React.Fragment>
+          );
+        })}
       </View>
 
-      {/* Item Selection & Monthly Entitlements */}
-      <View style={styles.section}>
+      {/* ============================================================ */}
+      {/* STEP 1: SMART CARD & LIVE QUEUE MONITOR                     */}
+      {/* ============================================================ */}
+      {currentStep === 1 && (
+        <View>
+          {/* Official Tamil Nadu Digital Smart Ration Card */}
+          <DigitalSmartCard 
+            user={user}
+            lang={lang}
+            profileImage={profileImage}
+            onImageSelected={onImageSelected}
+            socketConnected={socketConnected}
+          />
+
+          {/* Live Queue Monitor Widget */}
+          <View style={styles.queueWidget}>
+            <View style={styles.queueWidgetHeader}>
+              <Text style={styles.queueWidgetTitle}>⚡ LIVE FPS QUEUE MONITOR (FPS #401)</Text>
+              <View style={styles.liveIndicator}>
+                <View style={styles.pulseDot} />
+                <Text style={styles.liveIndicatorText}>LIVE UPDATES</Text>
+              </View>
+            </View>
+
+            <View style={styles.queueWidgetBody}>
+              <View style={styles.queueStatBox}>
+                <Text style={styles.queueStatLabel}>Now Serving Slot:</Text>
+                <Text style={styles.queueStatVal}>{queueStatus?.current_slot || '10:00 AM - 11:00 AM'}</Text>
+              </View>
+
+              <View style={styles.queueStatBox}>
+                <Text style={styles.queueStatLabel}>Active Serving Token:</Text>
+                <Text style={styles.queueStatHighlight}>Token #{queueStatus?.serving_token_number || 1} of 20</Text>
+              </View>
+
+              <View style={styles.queueStatBox}>
+                <Text style={styles.queueStatLabel}>Tokens Ahead of You:</Text>
+                <Text style={styles.queueStatValBold}>
+                  {queueStatus?.tokens_ahead !== undefined ? `${queueStatus.tokens_ahead} token(s)` : '0 token(s)'}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Step 1 Bottom Navigation Bar */}
+          <View style={styles.stepNavBar}>
+            {activeBookings.length > 0 ? (
+              <TouchableOpacity 
+                style={styles.stepNavBtnSecondary}
+                onPress={() => setCurrentStep(4)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.stepNavBtnSecondaryText}>
+                  🎟️ {lang === 'ta' ? 'என் டோக்கன்கள்' : 'My Active Passes'} ({activeBookings.length})
+                </Text>
+              </TouchableOpacity>
+            ) : <View />}
+
+            <TouchableOpacity 
+              style={styles.stepNavBtnPrimary}
+              onPress={() => setCurrentStep(2)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.stepNavBtnPrimaryText}>
+                {lang === 'ta' ? 'அடுத்தது: பொருட்கள் தேர்வு ➔' : 'Next: Choose Items ➔'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* ============================================================ */}
+      {/* STEP 2: MONTHLY COMMODITIES & BASKET SUMMARY                */}
+      {/* ============================================================ */}
+      {currentStep === 2 && (
+        <View>
+          {/* Item Selection & Monthly Entitlements */}
+          <View style={styles.section}>
         <View style={styles.entitlementHeaderRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.sectionTitle}>
@@ -712,8 +791,45 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
         </View>
       </View>
 
-      {/* Appointment Slot Booking Picker & Token Selector */}
-      <View style={styles.sectionDividerBar}>
+      {/* Step 2 Bottom Navigation Bar */}
+      <View style={styles.stepNavBar}>
+          <TouchableOpacity 
+            style={styles.stepNavBtnBack}
+            onPress={() => setCurrentStep(1)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.stepNavBtnBackText}>
+              ⬅ {lang === 'ta' ? 'அட்டை' : 'Back to Card'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.stepNavBtnPrimary}
+            onPress={() => {
+              const count = getSelectedItemsCount();
+              if (count === 0) {
+                alert(lang === 'ta' ? 'குறைந்தது 1 பொருளை தேர்வு செய்யவும்' : 'Please select at least 1 entitlement item to proceed');
+                return;
+              }
+              setCurrentStep(3);
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.stepNavBtnPrimaryText}>
+              {lang === 'ta' ? 'அடுத்தது: நேர ஸ்லாட் தேர்வு ➔' : 'Next: Select Slot & Token ➔'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    )}
+
+    {/* ============================================================ */}
+    {/* STEP 3: APPOINTMENT SLOT & 20-TOKEN BOOKING GRID            */}
+    {/* ============================================================ */}
+    {currentStep === 3 && (
+      <View>
+        {/* Appointment Slot Booking Picker & Token Selector */}
+        <View style={styles.sectionDividerBar}>
         <Text style={styles.sectionDividerText}>FAIR PRICE SHOP APPOINTMENT BOOKING</Text>
       </View>
 
@@ -854,93 +970,162 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
         />
       </View>
 
-      {/* Government Checkout Bar */}
-      <View style={styles.checkoutBar}>
-        <View>
-          <Text style={styles.billLabel}>Selected Token: <Text style={{ fontWeight: '800', color: '#0B3D91' }}>#{selectedTokenNumber}</Text></Text>
-          <Text style={styles.totalAmount}>Payable: ₹{calculateTotalBill().toFixed(2)}</Text>
-        </View>
+        {/* Slot Monitoring & Live Queue Tracking inside Step 3 */}
+        <SlotMonitoringQueueTracking
+          user={user}
+          lang={lang}
+          activeBookings={activeBookings}
+          selectedSlot={selectedSlot}
+          selectedSlotObj={selectedSlotObj}
+          selectedDate={selectedDate}
+          slots={slots}
+          onSelectSlot={(slot) => handleSlotSelect(slot)}
+        />
 
-        <TouchableOpacity 
-          style={[styles.checkoutBtn, submitting && styles.btnDisabled]} 
-          onPress={handleBookSlot}
-          disabled={submitting}
-        >
-          <Text style={styles.checkoutBtnText}>
-            {submitting ? 'Processing Token...' : `RESERVE TOKEN #${selectedTokenNumber} →`}
-          </Text>
-        </TouchableOpacity>
-      </View>
+        {/* Step 3 Navigation Bar with Confirmation & Bill Amount */}
+        <View style={styles.stepNavBar}>
+          <TouchableOpacity 
+            style={styles.stepNavBtnBack}
+            onPress={() => setCurrentStep(2)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.stepNavBtnBackText}>
+              ⬅ {lang === 'ta' ? 'பொருட்கள்' : 'Back to Items'}
+            </Text>
+          </TouchableOpacity>
 
-      {/* Active Digital Tokens & Booking History */}
-      <View style={styles.sectionDividerBar}>
-        <Text style={styles.sectionDividerText}>DIGITAL TOKENS & CANCELLATION MANAGEMENT</Text>
-      </View>
-
-      <View style={styles.section}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-          <Text style={styles.sectionTitle}>🎟️ My Digital Ration Tokens</Text>
-          <View style={{ backgroundColor: '#FEE2E2', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, borderWidth: 1, borderColor: '#FCA5A5' }}>
-            <Text style={{ fontSize: 10, fontWeight: '800', color: '#991B1B' }}>🚫 Token Cancellation Available</Text>
-          </View>
-        </View>
-
-        {activeBookings.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyText}>No active digital tokens found for this Ration Card.</Text>
-          </View>
-        ) : (
-          activeBookings.map((b, idx) => (
-            <View key={b.booking_id} style={[styles.historyCard, b.status === 'CANCELLED' && { opacity: 0.6, borderColor: '#FCA5A5' }]}>
-              <TouchableOpacity onPress={() => viewTokenDetails(b.booking_id)} activeOpacity={0.8}>
-                <View style={styles.historyTop}>
-                  <View>
-                    <Text style={styles.historyRefNo}>App No: TN/RATION/2026/0000{1000 + idx}</Text>
-                    <Text style={styles.historyId}>Token #{b.token_number || (idx + 1)} • ID: {b.booking_id}</Text>
-                  </View>
-                  <View style={[
-                    styles.statusPill, 
-                    b.status === 'ISSUED' ? styles.statusIssued : b.status === 'CANCELLED' ? { backgroundColor: '#FEE2E2', borderColor: '#EF4444' } : styles.statusBooked
-                  ]}>
-                    <Text style={[
-                      styles.statusPillText, 
-                      b.status === 'ISSUED' ? styles.statusIssuedText : b.status === 'CANCELLED' ? { color: '#991B1B' } : styles.statusBookedText
-                    ]}>
-                      {b.status === 'ISSUED' ? '✅ ISSUED' : b.status === 'CANCELLED' ? '🚫 CANCELLED' : '⏳ ACTIVE TOKEN'}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={styles.historySlot}>📅 Booked Slot: {b.slot_time}</Text>
-                <Text style={styles.historyTap}>Tap to open Official QR Token Pass & Verification Receipt →</Text>
-              </TouchableOpacity>
-
-              {/* Action Button: Token Cancellation */}
-              {b.status !== 'ISSUED' && b.status !== 'CANCELLED' && (
-                <View style={{ borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 8, marginTop: 8, flexDirection: 'row', justifyContent: 'flex-end' }}>
-                  <TouchableOpacity 
-                    style={{ backgroundColor: '#DC2626', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                    onPress={() => handleCancelBooking(b.booking_id)}
-                    disabled={submitting}
-                  >
-                    <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>🚫 Cancel Token & Release Slot</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
+          <TouchableOpacity 
+            style={[styles.stepNavBtnPrimary, submitting && styles.btnDisabled]} 
+            onPress={handleBookSlot}
+            disabled={submitting}
+            activeOpacity={0.8}
+          >
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.stepNavBtnPrimaryText}>
+                {submitting 
+                  ? (lang === 'ta' ? 'செயலாக்கம்...' : 'Processing...') 
+                  : (lang === 'ta' ? `டோக்கன் #${selectedTokenNumber} முன்பதிவு ➔` : `Confirm Token #${selectedTokenNumber} ➔`)}
+              </Text>
+              <Text style={{ color: '#E0F2FE', fontSize: 10, fontWeight: '700', marginTop: 1 }}>
+                {calculateTotalBill() === 0 ? (lang === 'ta' ? 'இலவசம் (₹0)' : 'Payable: FREE (₹0.00)') : `Payable: ₹${calculateTotalBill().toFixed(2)}`}
+              </Text>
             </View>
-          ))
-        )}
+          </TouchableOpacity>
+        </View>
       </View>
-      {/* Slot Monitoring & Queue Tracking */}
-      <SlotMonitoringQueueTracking
-        user={user}
-        lang={lang}
-        activeBookings={activeBookings}
-        selectedSlot={selectedSlot}
-        selectedSlotObj={selectedSlotObj}
-        selectedDate={selectedDate}
-        slots={slots}
-        onSelectSlot={(slot) => handleSlotSelect(slot)}
-      />
+    )}
+
+    {/* ============================================================ */}
+    {/* STEP 4: DIGITAL TOKEN PASSES, QR CODE & RECEIPTS             */}
+    {/* ============================================================ */}
+    {currentStep === 4 && (
+      <View>
+        <View style={styles.sectionDividerBar}>
+          <Text style={styles.sectionDividerText}>
+            {lang === 'ta' ? 'டிஜிட்டல் டோக்கன்கள் & ரசீதுகள்' : 'DIGITAL TOKENS & RECEIPT MANAGEMENT'}
+          </Text>
+        </View>
+
+        <View style={styles.section}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <Text style={styles.sectionTitle}>
+              🎟️ {lang === 'ta' ? 'என் டிஜிட்டல் ரேஷன் டோக்கன்கள்' : 'My Digital Ration Tokens'}
+            </Text>
+            <View style={{ backgroundColor: '#FEE2E2', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, borderWidth: 1, borderColor: '#FCA5A5' }}>
+              <Text style={{ fontSize: 10, fontWeight: '800', color: '#991B1B' }}>
+                🚫 {lang === 'ta' ? 'ரத்து செய்யும் வசதி உள்ளது' : 'Cancellation Available'}
+              </Text>
+            </View>
+          </View>
+
+          {activeBookings.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={{ fontSize: 28, marginBottom: 8, textAlign: 'center' }}>🎟️</Text>
+              <Text style={[styles.emptyText, { textAlign: 'center' }]}>
+                {lang === 'ta' 
+                  ? 'இந்த குடும்ப அட்டைக்கு தற்போது செயலில் உள்ள டோக்கன் ஏதும் இல்லை.' 
+                  : 'No active digital tokens found for this Ration Card.'}
+              </Text>
+              <TouchableOpacity 
+                style={[styles.stepNavBtnPrimary, { marginTop: 14, alignSelf: 'center', minWidth: 200 }]}
+                onPress={() => setCurrentStep(1)}
+              >
+                <Text style={styles.stepNavBtnPrimaryText}>
+                  ➕ {lang === 'ta' ? 'புதிய டோக்கன் பதிவு செய்ய' : 'Book a New Token'} ➔
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            activeBookings.map((b, idx) => (
+              <View key={b.booking_id} style={[styles.historyCard, b.status === 'CANCELLED' && { opacity: 0.6, borderColor: '#FCA5A5' }]}>
+                <TouchableOpacity onPress={() => viewTokenDetails(b.booking_id)} activeOpacity={0.8}>
+                  <View style={styles.historyTop}>
+                    <View>
+                      <Text style={styles.historyRefNo}>App No: TN/RATION/2026/0000{1000 + idx}</Text>
+                      <Text style={styles.historyId}>Token #{b.token_number || (idx + 1)} • ID: {b.booking_id}</Text>
+                    </View>
+                    <View style={[
+                      styles.statusPill, 
+                      b.status === 'ISSUED' ? styles.statusIssued : b.status === 'CANCELLED' ? { backgroundColor: '#FEE2E2', borderColor: '#EF4444' } : styles.statusBooked
+                    ]}>
+                      <Text style={[
+                        styles.statusPillText, 
+                        b.status === 'ISSUED' ? styles.statusIssuedText : b.status === 'CANCELLED' ? { color: '#991B1B' } : styles.statusBookedText
+                      ]}>
+                        {b.status === 'ISSUED' ? '✅ ISSUED' : b.status === 'CANCELLED' ? '🚫 CANCELLED' : '⏳ ACTIVE TOKEN'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.historySlot}>📅 Booked Slot: {b.slot_time}</Text>
+                  <Text style={styles.historyTap}>Tap to open Official QR Token Pass & Verification Receipt →</Text>
+                </TouchableOpacity>
+
+                {/* Action Button: Token Cancellation */}
+                {b.status !== 'ISSUED' && b.status !== 'CANCELLED' && (
+                  <View style={{ borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 8, marginTop: 8, flexDirection: 'row', justifyContent: 'flex-end' }}>
+                    <TouchableOpacity 
+                      style={{ backgroundColor: '#DC2626', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      onPress={() => handleCancelBooking(b.booking_id)}
+                      disabled={submitting}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>🚫 Cancel Token & Release Slot</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ))
+          )}
+        </View>
+
+        {/* Step 4 Navigation Bar */}
+        <View style={styles.stepNavBar}>
+          <TouchableOpacity 
+            style={styles.stepNavBtnBack}
+            onPress={() => setCurrentStep(3)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.stepNavBtnBackText}>
+              ⬅ {lang === 'ta' ? 'ஸ்லாட்டுகள்' : 'Back to Slots'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.stepNavBtnSecondary}
+            onPress={() => {
+              setSelectedSlot(null);
+              setSelectedSlotObj(null);
+              setSelectedTokenNumber(1);
+              setCurrentStep(1);
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.stepNavBtnSecondaryText}>
+              ➕ {lang === 'ta' ? 'புதிய முன்பதிவு' : 'New Booking'} ➔
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    )}
 
       <Footer />
 
@@ -1275,12 +1460,17 @@ const styles = StyleSheet.create({
     marginTop: 3
   },
   queueWidget: {
-    backgroundColor: '#061E47',
-    borderRadius: 10,
+    backgroundColor: '#064E3B',
+    borderRadius: 12,
     padding: 12,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#FF9933'
+    borderColor: '#10B981',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2
   },
   queueWidgetHeader: {
     flexDirection: 'row',
@@ -1292,7 +1482,7 @@ const styles = StyleSheet.create({
     paddingBottom: 6
   },
   queueWidgetTitle: {
-    color: '#FF9933',
+    color: '#34D399',
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.5
@@ -2571,6 +2761,166 @@ const styles = StyleSheet.create({
   socketText: {
     fontSize: 12,
     fontWeight: '700'
+  },
+  /* 4-Step Interactive Wizard Styles */
+  stepperContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    shadowColor: '#0B3D91',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3
+  },
+  stepItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+    position: 'relative'
+  },
+  stepItemActive: {
+    backgroundColor: '#EFF6FF'
+  },
+  stepCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1.5,
+    borderColor: '#94A3B8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4
+  },
+  stepCircleActive: {
+    backgroundColor: '#0B3D91',
+    borderColor: '#0B3D91'
+  },
+  stepCircleCompleted: {
+    backgroundColor: '#166534',
+    borderColor: '#166534'
+  },
+  stepCircleText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#64748B'
+  },
+  stepCircleTextActive: {
+    color: '#FFFFFF'
+  },
+  stepLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B'
+  },
+  stepLabelActive: {
+    color: '#0B3D91',
+    fontWeight: '900'
+  },
+  stepBadgePill: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#DC2626',
+    borderRadius: 9,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4
+  },
+  stepBadgePillText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900'
+  },
+  stepConnectorLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: '#E2E8F0',
+    marginHorizontal: 4,
+    alignSelf: 'center',
+    marginBottom: 16
+  },
+  stepConnectorLineCompleted: {
+    backgroundColor: '#166534'
+  },
+  stepNavBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    gap: 10
+  },
+  stepNavBtnBack: {
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  stepNavBtnBackText: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '700'
+  },
+  stepNavBtnPrimary: {
+    flex: 1,
+    backgroundColor: '#0B3D91',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0B3D91',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 3
+  },
+  stepNavBtnPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800'
+  },
+  stepNavBtnSecondary: {
+    backgroundColor: '#F0FDF4',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  stepNavBtnSecondaryText: {
+    color: '#166534',
+    fontSize: 13,
+    fontWeight: '800'
   }
 });
 
