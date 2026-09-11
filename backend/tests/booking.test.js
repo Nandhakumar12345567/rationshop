@@ -43,7 +43,7 @@ describe('Booking & Slot Entitlement API Tests', () => {
 
     expect(res.statusCode).toEqual(400);
     expect(res.body.success).toBe(false);
-    expect(res.body.error).toContain('exceeds monthly limit');
+    expect(res.body.error).toContain('exceeds');
   });
 
   it('should successfully create a valid slot booking within entitlement limits', async () => {

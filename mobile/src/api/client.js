@@ -19,7 +19,7 @@ const getApiBaseUrl = () => {
   }
 
   // Computer Local Wi-Fi IPv4 Fallback
-  return 'http://192.168.6.112:5000/api';
+  return 'http://192.168.6.111:5000/api';
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -78,6 +78,7 @@ export const api = {
   getSlots: (date) => request(`/bookings/slots?date=${date || ''}`),
   createBooking: (items, slot_time, token_number, family_size) => request('/bookings/create', { method: 'POST', body: JSON.stringify({ items, slot_time, token_number, family_size }) }),
   cancelBooking: (booking_id) => request('/bookings/cancel', { method: 'POST', body: JSON.stringify({ booking_id }) }),
+  clearAllBookings: () => request('/bookings/clear-all', { method: 'POST' }),
   getMyBookings: () => request('/bookings/my-bookings'),
   getBookingById: (id) => request(`/bookings/${id}`),
 

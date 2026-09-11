@@ -5,6 +5,7 @@ import { api } from '../../api/client';
 import { socketManager } from '../../api/socket';
 import BiometricModal from '../../components/BiometricModal';
 import Footer from '../../components/Footer';
+import jsQR from 'jsqr';
 
 export default function ShopkeeperView({ lang }) {
   const [tokenInput, setTokenInput] = useState('');
@@ -99,8 +100,72 @@ export default function ShopkeeperView({ lang }) {
     }
   };
 
+  const handleUploadQrImage = () => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = async (ev) => {
+            const dataUri = ev.target.result;
+            setLoading(true);
+            setTokenState(null);
+            setScannedBooking(null);
+
+            let decoded = null;
+            try {
+              decoded = await new Promise((resolve) => {
+                const img = new window.Image();
+                img.crossOrigin = 'Anonymous';
+                img.onload = () => {
+                  try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, img.width, img.height);
+                    const imageData = ctx.getImageData(0, 0, img.width, img.height);
+                    const fn = typeof jsQR === 'function' ? jsQR : (jsQR && jsQR.default);
+                    const code = fn ? fn(imageData.data, imageData.width, imageData.height) : null;
+                    resolve(code ? code.data : null);
+                  } catch (err) {
+                    resolve(null);
+                  }
+                };
+                img.onerror = () => resolve(null);
+                img.src = dataUri;
+              });
+            } catch (err) {}
+
+            setLoading(false);
+
+            if (!decoded) {
+              setTokenState('invalid');
+              alert('❌ INVALID IMAGE: No readable QR code detected in this image. Please upload a valid Ration Token QR code.');
+              return;
+            }
+
+            // Valid QR decoded from image
+            handleScanOrSubmitToken(decoded);
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+      input.click();
+    }
+  };
+
   const handleScanOrSubmitToken = async (sampleTokenStr) => {
-    const tokenToUse = sampleTokenStr || tokenInput.trim() || 'ACTIVE_DEMO';
+    const tokenToUse = sampleTokenStr !== undefined ? sampleTokenStr : tokenInput.trim();
+    if (!tokenToUse) {
+      setTokenState('invalid');
+      setScannedBooking(null);
+      setCustomer(null);
+      return;
+    }
 
     setLoading(true);
     setScannedBooking(null);
@@ -269,15 +334,21 @@ export default function ShopkeeperView({ lang }) {
             </Text>
           </View>
 
-          {!cameraActive ? (
-            <TouchableOpacity style={styles.turnOnCamBtn} onPress={startRealCamera}>
-              <Text style={styles.turnOnCamText}>🎥 Turn On Live Camera</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {!cameraActive ? (
+              <TouchableOpacity style={styles.turnOnCamBtn} onPress={startRealCamera}>
+                <Text style={styles.turnOnCamText}>🎥 Turn On Live Camera</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.turnOffCamBtn} onPress={stopRealCamera}>
+                <Text style={styles.turnOffCamText}>⏹️ Stop Camera</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity style={styles.uploadQrBtn} onPress={handleUploadQrImage}>
+              <Text style={styles.uploadQrBtnText}>📁 Upload QR</Text>
             </TouchableOpacity>
-          ) : (
-            <TouchableOpacity style={styles.turnOffCamBtn} onPress={stopRealCamera}>
-              <Text style={styles.turnOffCamText}>⏹️ Stop Camera</Text>
-            </TouchableOpacity>
-          )}
+          </View>
         </View>
 
         {/* Real Live Camera Feed Box */}
@@ -625,6 +696,17 @@ const styles = StyleSheet.create({
     borderRadius: 6
   },
   turnOffCamText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800'
+  },
+  uploadQrBtn: {
+    backgroundColor: '#0F2942',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6
+  },
+  uploadQrBtnText: {
     color: '#FFFFFF',
     fontSize: 10,
     fontWeight: '800'

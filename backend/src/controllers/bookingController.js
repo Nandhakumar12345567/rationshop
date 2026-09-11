@@ -6,6 +6,34 @@ const { calculateItemEntitlement } = require('../services/entitlementService');
 
 const MAX_SLOT_CAPACITY = 20; // Maximum customers per time slot (20 tokens cap per hour)
 
+function calculateTokenTime(slotDisplayTime, tokenNumber) {
+  if (!slotDisplayTime) return '09:00 AM';
+  const startPart = slotDisplayTime.split('-')[0].trim();
+  const match = startPart.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!match) return startPart;
+  
+  let hours = parseInt(match[1], 10);
+  let minutes = parseInt(match[2], 10);
+  const ampm = match[3].toUpperCase();
+  
+  if (ampm === 'PM' && hours !== 12) hours += 12;
+  if (ampm === 'AM' && hours === 12) hours = 0;
+  
+  // 20 tokens per 60 mins -> 3 mins per token
+  const tokenIdx = Math.max(1, Math.min(20, parseInt(tokenNumber, 10) || 1));
+  const addedMinutes = (tokenIdx - 1) * 3;
+  
+  let totalMinutes = hours * 60 + minutes + addedMinutes;
+  let finalHours = Math.floor(totalMinutes / 60) % 24;
+  let finalMinutes = totalMinutes % 60;
+  
+  const finalAmPm = finalHours >= 12 ? 'PM' : 'AM';
+  const displayHours = finalHours % 12 === 0 ? 12 : finalHours % 12;
+  const padMin = String(finalMinutes).padStart(2, '0');
+  
+  return `${String(displayHours).padStart(2, '0')}:${padMin} ${finalAmPm}`;
+}
+
 class BookingController {
   /**
    * Get Available Slots for a given date with current capacity counts and booked token numbers
@@ -23,9 +51,13 @@ class BookingController {
         '04:00 PM - 05:00 PM'
       ];
 
-      // Query database for existing bookings for these slots on given date
+      // Query database for existing bookings for these slots on given date joined with cardholder name
       const result = await db.query(
-        "SELECT slot_time, qr_token FROM bookings WHERE slot_time LIKE $1 AND status != 'CANCELLED'",
+        `SELECT b.booking_id, b.card_no, b.slot_time, b.status, b.created_at, b.qr_token, rc.holder_name
+         FROM bookings b
+         LEFT JOIN ration_cards rc ON rc.card_no = b.card_no
+         WHERE b.slot_time LIKE $1 AND b.status != 'CANCELLED'
+         ORDER BY b.created_at ASC`,
         [`${dateStr}%`]
       );
 
@@ -34,14 +66,22 @@ class BookingController {
         if (!slotBookings[row.slot_time]) {
           slotBookings[row.slot_time] = [];
         }
-        // Try to parse token_number from qr_token JSON if available
         let tokenNum = null;
         try {
           const payload = JSON.parse(row.qr_token || '{}');
           tokenNum = payload.token_number;
         } catch (e) {}
         
-        slotBookings[row.slot_time].push(tokenNum);
+        const finalTokenNum = tokenNum || (slotBookings[row.slot_time].length + 1);
+
+        slotBookings[row.slot_time].push({
+          booking_id: row.booking_id,
+          card_no: row.card_no,
+          holder_name: row.holder_name || 'Designated Beneficiary',
+          token_number: finalTokenNum,
+          status: row.status || 'BOOKED',
+          created_at: row.created_at
+        });
       });
 
       const slots = timeSlots.map(slot => {
@@ -49,10 +89,31 @@ class BookingController {
         const existingList = slotBookings[fullSlotName] || [];
         const bookedCount = existingList.length;
 
-        // Map which specific token numbers from 1 to 20 are booked
-        const bookedTokenNumbers = existingList
-          .map((num, idx) => num || (idx + 1))
-          .filter(Boolean);
+        // Sort existing booked tokens by token_number
+        const sortedBookedTokens = [...existingList].sort((a, b) => a.token_number - b.token_number);
+
+        const bookedTokensWithTime = sortedBookedTokens.map((item, index) => {
+          const tokenCode = `T${String(item.token_number).padStart(3, '0')}`;
+          const calculatedTime = calculateTokenTime(slot, item.token_number);
+          let queueStatus = 'Waiting';
+          if (item.status === 'ISSUED') {
+            queueStatus = 'Serving';
+          } else if (index === 0) {
+            queueStatus = 'Serving';
+          } else if (index === 1) {
+            queueStatus = 'Next';
+          }
+          return {
+            ...item,
+            token: tokenCode,
+            name: item.holder_name,
+            nameTa: item.holder_name,
+            time: calculatedTime,
+            status: queueStatus
+          };
+        });
+
+        const bookedTokenNumbers = sortedBookedTokens.map(b => b.token_number);
 
         return {
           slot_time: fullSlotName,
@@ -61,7 +122,8 @@ class BookingController {
           max_capacity: MAX_SLOT_CAPACITY,
           available_capacity: Math.max(0, MAX_SLOT_CAPACITY - bookedCount),
           is_full: bookedCount >= MAX_SLOT_CAPACITY,
-          booked_token_numbers: bookedTokenNumbers
+          booked_token_numbers: bookedTokenNumbers,
+          booked_tokens: bookedTokensWithTime
         };
       });
 
@@ -341,6 +403,36 @@ class BookingController {
     } catch (error) {
       console.error('[Cancel Booking Error]', error);
       res.status(500).json({ success: false, error: 'Failed to cancel booking' });
+    }
+  }
+
+  /**
+   * Erase all slot booking data, transactions, and logs
+   */
+  static async clearAllBookings(req, res) {
+    try {
+      await db.query('DELETE FROM issued_logs');
+      await db.query('DELETE FROM transactions');
+      await db.query('DELETE FROM bookings');
+
+      try {
+        socketService.emitSlotUpdate({ action: 'cleared_all' });
+        socketService.emitQueueUpdate('shop_1', {
+          success: true,
+          tokens_grid: [],
+          booked_count: 0
+        });
+      } catch (sockErr) {
+        console.error('[Clear All Socket Error]', sockErr);
+      }
+
+      return res.json({
+        success: true,
+        message: 'All booked slot data and transaction history have been completely erased.'
+      });
+    } catch (error) {
+      console.error('[Clear All Bookings Error]', error);
+      res.status(500).json({ success: false, error: 'Failed to erase slot booking data' });
     }
   }
 }

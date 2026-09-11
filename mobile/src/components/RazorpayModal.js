@@ -1,53 +1,50 @@
 import React, { useState } from 'react';
-import { View, Text, Modal, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, ScrollView, Linking, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  Modal,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  Image,
+  ScrollView,
+  Linking,
+  Platform,
+  SafeAreaView
+} from 'react-native';
 
 const PAYMENT_ASSETS = {
   gpay: require('../../assets/payments/gpay.png'),
   phonepe: require('../../assets/payments/phonepe.png'),
   paytm: require('../../assets/payments/paytm.png'),
   upi: require('../../assets/payments/upi.png'),
-  netbanking: require('../../assets/payments/netbanking.png'),
   card: require('../../assets/payments/card.png')
 };
 
-const PAYMENT_METHODS = [
-  { id: 'gpay', name: 'Google Pay', type: 'UPI' },
-  { id: 'phonepe', name: 'PhonePe', type: 'UPI' },
-  { id: 'paytm', name: 'Paytm UPI', type: 'UPI' },
-  { id: 'upi', name: 'BHIM UPI', type: 'UPI' },
-  { id: 'netbanking', name: 'Net Banking', type: 'BANK' },
-  { id: 'card', name: 'Debit/Credit Card', type: 'CARD' }
-];
-
-const FALLBACK_SVGS = {
-  gpay: `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60"><rect width="120" height="60" rx="8" fill="#FFFFFF"/><g transform="translate(32,10) scale(0.42)"><path fill="#4285F4" d="M38,62 C22,46 22,20 38,4 L54,-12 C70,-28 96,-28 112,-12 C128,4 128,30 112,46 L96,62 C80,78 54,78 38,62 Z" transform="rotate(-30 65 30)"/><path fill="#34A853" d="M68,12 C84,-4 110,-4 126,12 L142,28 C158,44 158,70 142,86 L126,102 C110,118 84,118 68,102 Z" transform="rotate(30 100 45)"/><path fill="#FBBC04" d="M38,48 C54,32 80,32 96,48 L112,64 C128,80 128,106 112,122 L96,138 C80,154 54,154 38,138 Z" transform="rotate(-30 75 80)"/><path fill="#EA4335" d="M88,38 C104,22 130,22 146,38 L162,54 C178,70 178,96 162,112 L146,128 C130,144 104,144 88,128 Z" transform="rotate(30 120 70)"/></g></svg>')}`,
-
-  phonepe: `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 80"><rect width="160" height="80" rx="8" fill="#FFFFFF"/><g transform="translate(10, 10)"><circle cx="30" cy="30" r="26" fill="#5F259F"/><path fill="#FFFFFF" d="M 22 18 L 30 26 H 36 V 21 H 22 V 18 H 40 V 30 C 40 35 35 38 30 38 H 27 V 46 H 21 V 28 H 27 C 31 28 34 27 34 24 H 22 Z"/><text x="68" y="38" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="bold" fill="#5F259F">PhonePe</text></g></svg>')}`,
-
-  paytm: `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100"><rect width="160" height="100" rx="12" fill="#FFFFFF"/><g transform="translate(10, 10)"><text x="70" y="28" font-family="Arial, sans-serif" font-size="24" font-weight="900" text-anchor="middle"><tspan fill="#002E6E">pay</tspan><tspan fill="#00BAF2">tm</tspan></text><rect x="25" y="38" width="30" height="4" rx="2" fill="#002E6E"/><text x="70" y="44" font-size="14" text-anchor="middle" fill="#EF4444">❤️</text><rect x="85" y="38" width="30" height="4" rx="2" fill="#00BAF2"/><text x="70" y="72" font-family="Arial, sans-serif" font-size="22" font-style="italic" font-weight="900" fill="#475569" text-anchor="middle">UPI</text></g></svg>')}`,
-
-  upi: `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 40"><rect width="80" height="40" rx="6" fill="#FF9933"/><text x="40" y="25" font-family="Arial" font-size="11" font-weight="bold" fill="#061E47" text-anchor="middle">BHIM UPI</text></svg>')}`,
-  netbanking: `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 40"><rect width="80" height="40" rx="6" fill="#0F172A"/><text x="40" y="25" font-family="Arial" font-size="10" font-weight="bold" fill="#38BDF8" text-anchor="middle">NET BANK</text></svg>')}`,
-  card: `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 40"><rect width="80" height="40" rx="6" fill="#1E3A8A"/><text x="40" y="25" font-family="Arial" font-size="10" font-weight="bold" fill="#F59E0B" text-anchor="middle">CARD</text></svg>')}`
-};
-
 export default function RazorpayModal({ visible, onClose, booking, onPaymentSuccess }) {
-  const [selectedMethod, setSelectedMethod] = useState('gpay');
-  const [upiId, setUpiId] = useState('user@okaxis');
-  const [cardNumber, setCardNumber] = useState('4532 8891 0012 9942');
+  // Default selected: 'phonepe' (as seen in frequently used)
+  const [selectedMethod, setSelectedMethod] = useState('phonepe');
   const [processing, setProcessing] = useState(false);
-  const [imgErrorMap, setImgErrorMap] = useState({});
+  const [processingStatus, setProcessingStatus] = useState('');
+  const [showCardInput, setShowCardInput] = useState(false);
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
 
   if (!booking) return null;
 
-  const totalAmount = booking.items ? booking.items.reduce((sum, item) => sum + (item.total_price || 0), 0) : 0;
+  const totalAmount = booking.items
+    ? booking.items.reduce((sum, item) => sum + (item.total_price || 0), 0)
+    : 225.50;
 
   const handlePay = async () => {
     setProcessing(true);
+    setProcessingStatus(`Connecting to ${getMethodName(selectedMethod)}...`);
 
-    // Try to deep link into real Google Pay / UPI App on mobile devices
-    if (Platform.OS !== 'web' && currentMethodObj?.type === 'UPI') {
-      const upiUrl = `upi://pay?pa=${encodeURIComponent(upiId || 'tnpds@okaxis')}&pn=TNPDS_Ration_Shop&tr=${booking.booking_id}&am=${totalAmount}&cu=INR`;
+    // On mobile devices, try deep-linking to UPI app
+    if (Platform.OS !== 'web') {
+      const upiUrl = `upi://pay?pa=tnpds@sbi&pn=TNPDS_Smart_Ration&tr=${booking.booking_id}&am=${totalAmount}&cu=INR`;
       try {
         const supported = await Linking.canOpenURL(upiUrl);
         if (supported) {
@@ -59,411 +56,669 @@ export default function RazorpayModal({ visible, onClose, booking, onPaymentSucc
     }
 
     setTimeout(() => {
+      setProcessingStatus('Verifying UPI transaction with NPCI / Bank...');
+    }, 800);
+
+    setTimeout(() => {
       setProcessing(false);
       onPaymentSuccess({
-        razorpay_order_id: `order_rzp_${Date.now()}`,
+        razorpay_order_id: `order_upi_${Date.now()}`,
         razorpay_payment_id: `pay_${selectedMethod}_${Date.now()}`,
-        payment_method: selectedMethod.toUpperCase()
+        payment_method: selectedMethod.toUpperCase(),
+        amount: totalAmount
       });
       onClose();
-    }, 1200);
+    }, 1600);
   };
 
-  const handleImageError = (id) => {
-    setImgErrorMap(prev => ({ ...prev, [id]: true }));
+  const getMethodName = (id) => {
+    switch (id) {
+      case 'phonepe': return 'PhonePe UPI';
+      case 'any_upi': return 'UPI App';
+      case 'gpay': return 'Google Pay';
+      case 'paytm': return 'Paytm UPI';
+      case 'card': return 'Debit / Credit Card';
+      default: return 'Online UPI';
+    }
   };
-
-  const currentMethodObj = PAYMENT_METHODS.find(m => m.id === selectedMethod);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.card}>
-          {/* Government Payment Header */}
-          <View style={styles.headerBar}>
-            <View style={styles.trustBadgeTop}>
-              <Text style={styles.trustBadgeTopText}>🏛️ TAMIL NADU GOVT PDS PAYMENT PORTAL</Text>
+    <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
+      <SafeAreaView style={styles.safeContainer}>
+        {/* ============================================================== */}
+        {/* TOP BLUE HEADER BAR (← Payment Methods)                        */}
+        {/* ============================================================== */}
+        <View style={styles.headerBar}>
+          <TouchableOpacity style={styles.backButton} onPress={onClose} activeOpacity={0.7}>
+            <Text style={styles.backArrowText}>←</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Payment Methods</Text>
+          <View style={{ width: 36 }} />
+        </View>
+
+        <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {/* ============================================================== */}
+          {/* GREEN CASHBACK BANNER                                          */}
+          {/* ============================================================== */}
+          <View style={styles.cashbackBanner}>
+            <View style={styles.cashbackIconBadge}>
+              <Text style={styles.cashbackPercentText}>%</Text>
             </View>
-            <Text style={styles.title}>Subsidised PDS Online Gateway</Text>
-            <Text style={styles.subTitle}>Razorpay Sandbox • Multi-Channel Digital Payments</Text>
+            <Text style={styles.cashbackBannerText}>
+              Instant Cashback of 1% Upto Rs.30 on BHIM APP
+            </Text>
           </View>
 
-          <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: 10 }}>
-            <Text style={styles.bookingRef}>Application Ref No: TN/RATION/2026/0000{booking.booking_id}</Text>
+          {/* ============================================================== */}
+          {/* SECTION 1: FREQUENTLY USED PAYMENTS                            */}
+          {/* ============================================================== */}
+          <View style={styles.sectionHeaderBox}>
+            <Text style={styles.sectionHeaderText}>Frequently used Payments</Text>
+          </View>
 
-            {/* Bill Summary Card */}
-            <View style={styles.billBox}>
-              <View style={styles.billRow}>
-                <Text style={styles.billItemLabel}>Subsidised Ration Items Total:</Text>
-                <Text style={styles.billItemVal}>₹{totalAmount.toFixed(2)}</Text>
+          <View style={styles.sectionCard}>
+            {/* 1. PhonePe UPI */}
+            <TouchableOpacity
+              style={styles.paymentRow}
+              onPress={() => { setSelectedMethod('phonepe'); setShowCardInput(false); }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.logoCirclePhonePe}>
+                <Text style={styles.phonePeLogoText}>पे</Text>
               </View>
-              
-              <View style={styles.billRow}>
-                <Text style={styles.billItemLabel}>Government Gateway Fee:</Text>
-                <Text style={styles.feeWaiver}>₹0.00 (Waived)</Text>
+
+              <View style={styles.methodInfoBox}>
+                <Text style={styles.methodTitle}>PhonePe UPI</Text>
               </View>
 
-              <View style={styles.billDivider} />
-
-              <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Total Payable Amount:</Text>
-                <Text style={styles.totalAmount}>₹{totalAmount.toFixed(2)}</Text>
+              {/* Radio Button */}
+              <View style={[styles.radioButtonOuter, selectedMethod === 'phonepe' && styles.radioButtonOuterSelected]}>
+                {selectedMethod === 'phonepe' && <View style={styles.radioButtonInner} />}
               </View>
-            </View>
+            </TouchableOpacity>
 
-            {/* Online Transaction Logos Grid */}
-            <View style={styles.upiAppsContainer}>
-              <Text style={styles.supportedLabel}>Select Online Payment Method Logo:</Text>
-              
-              <View style={styles.upiLogosGrid}>
-                {PAYMENT_METHODS.map((pm) => {
-                  const isSelected = selectedMethod === pm.id;
-                  const hasErr = imgErrorMap[pm.id];
-                  const localAsset = PAYMENT_ASSETS[pm.id];
-                  const fallbackSvg = FALLBACK_SVGS[pm.id];
+            <View style={styles.rowDivider} />
 
-                  return (
-                    <TouchableOpacity
-                      key={pm.id}
-                      style={[styles.paymentTile, isSelected && styles.paymentTileSelected]}
-                      onPress={() => setSelectedMethod(pm.id)}
-                    >
-                      {!hasErr && localAsset ? (
-                        <Image
-                          source={localAsset}
-                          style={styles.logoImage}
-                          resizeMode="contain"
-                          onError={() => handleImageError(pm.id)}
-                        />
-                      ) : (
-                        <Image
-                          source={{ uri: fallbackSvg }}
-                          style={styles.logoImage}
-                          resizeMode="contain"
-                        />
-                      )}
-                      <Text style={[styles.tileName, isSelected && styles.tileNameSelected]}>{pm.name}</Text>
-                      {isSelected && <View style={styles.selectedCheckBadge}><Text style={styles.checkText}>✓</Text></View>}
-                    </TouchableOpacity>
-                  );
-                })}
+            {/* 2. Pay by Any UPI app */}
+            <TouchableOpacity
+              style={styles.paymentRow}
+              onPress={() => { setSelectedMethod('any_upi'); setShowCardInput(false); }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.logoSquareAnyUpi}>
+                <Text style={styles.anyUpiLogoText}>UPI</Text>
               </View>
-            </View>
 
-            {/* Dynamic Form Input Based on Selected Method */}
-            {currentMethodObj?.type === 'UPI' ? (
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Enter Virtual Payment Address (VPA / UPI ID):</Text>
+              <View style={styles.methodInfoBox}>
+                <Text style={styles.methodTitle}>Pay by Any UPI app</Text>
+                <Text style={styles.methodSubtext}>Use any UPI app on your phone to pay</Text>
+              </View>
+
+              {/* Radio Button */}
+              <View style={[styles.radioButtonOuter, selectedMethod === 'any_upi' && styles.radioButtonOuterSelected]}>
+                {selectedMethod === 'any_upi' && <View style={styles.radioButtonInner} />}
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* ============================================================== */}
+          {/* SECTION 2: UPI APPS                                            */}
+          {/* ============================================================== */}
+          <View style={styles.sectionHeaderBox}>
+            <Text style={styles.sectionHeaderText}>UPI Apps</Text>
+          </View>
+
+          <View style={styles.sectionCard}>
+            {/* 3. GPay */}
+            <TouchableOpacity
+              style={styles.paymentRow}
+              onPress={() => { setSelectedMethod('gpay'); setShowCardInput(false); }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.logoGPayBox}>
+                <Text style={styles.gpayLogoLetterG}>G</Text>
+                <Text style={styles.gpayLogoText}>Pay</Text>
+              </View>
+
+              <View style={styles.methodInfoBox}>
+                <Text style={styles.methodTitle}>GPay</Text>
+              </View>
+
+              {/* Radio Button */}
+              <View style={[styles.radioButtonOuter, selectedMethod === 'gpay' && styles.radioButtonOuterSelected]}>
+                {selectedMethod === 'gpay' && <View style={styles.radioButtonInner} />}
+              </View>
+            </TouchableOpacity>
+
+            <View style={styles.rowDivider} />
+
+            {/* 4. Paytm */}
+            <TouchableOpacity
+              style={[styles.paymentRow, { alignItems: 'flex-start' }]}
+              onPress={() => { setSelectedMethod('paytm'); setShowCardInput(false); }}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.logoCirclePaytm, { marginTop: 2 }]}>
+                <Text style={styles.paytmLogoPay}>pay</Text>
+                <Text style={styles.paytmLogoTm}>tm</Text>
+              </View>
+
+              <View style={styles.methodInfoBox}>
+                <Text style={styles.methodTitle}>Paytm</Text>
+                <View style={styles.cashbackTagRow}>
+                  <View style={styles.greenCheckCircle}>
+                    <Text style={styles.greenCheckCircleText}>✓</Text>
+                  </View>
+                  <Text style={styles.paytmCashbackText}>
+                    Assured ₹15 – ₹300 Cashback + Gold Coins on every payment via Paytm UPI{' '}
+                    <Text style={styles.tncLink}>T&C</Text>
+                  </Text>
+                </View>
+              </View>
+
+              {/* Radio Button */}
+              <View style={[styles.radioButtonOuter, { marginTop: 4 }, selectedMethod === 'paytm' && styles.radioButtonOuterSelected]}>
+                {selectedMethod === 'paytm' && <View style={styles.radioButtonInner} />}
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* ============================================================== */}
+          {/* SECTION 3: CARD                                                */}
+          {/* ============================================================== */}
+          <View style={styles.sectionHeaderBox}>
+            <Text style={styles.sectionHeaderText}>Card</Text>
+          </View>
+
+          <View style={styles.sectionCard}>
+            <TouchableOpacity
+              style={styles.paymentRow}
+              onPress={() => {
+                setSelectedMethod('card');
+                setShowCardInput(!showCardInput);
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.logoCardBox}>
+                <Text style={styles.cardIconText}>💳</Text>
+              </View>
+
+              <View style={styles.methodInfoBox}>
+                <Text style={styles.methodTitle}>Card</Text>
+              </View>
+
+              <Text style={styles.chevronRightText}>{showCardInput ? '▼' : '>'}</Text>
+            </TouchableOpacity>
+
+            {/* Expandable Card Form */}
+            {showCardInput && (
+              <View style={styles.cardInputContainer}>
                 <TextInput
-                  style={styles.input}
-                  value={upiId}
-                  onChangeText={setUpiId}
-                  placeholder="e.g. name@upi or mobile@okicici"
-                  placeholderTextColor="#94A3B8"
-                />
-              </View>
-            ) : currentMethodObj?.type === 'CARD' ? (
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Card Number (Debit / Credit):</Text>
-                <TextInput
-                  style={styles.input}
+                  style={styles.cardInputField}
+                  placeholder="Card Number (Debit / Credit)"
                   value={cardNumber}
                   onChangeText={setCardNumber}
-                  placeholder="4532 XXXX XXXX 9942"
+                  keyboardType="numeric"
                   placeholderTextColor="#94A3B8"
                 />
-              </View>
-            ) : (
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Select Net Banking Bank:</Text>
-                <View style={styles.bankSelectBox}>
-                  <Text style={styles.bankSelectText}>🏦 State Bank of India (SBI) - NetBanking</Text>
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+                  <TextInput
+                    style={[styles.cardInputField, { flex: 1 }]}
+                    placeholder="MM/YY"
+                    value={cardExpiry}
+                    onChangeText={setCardExpiry}
+                    placeholderTextColor="#94A3B8"
+                  />
+                  <TextInput
+                    style={[styles.cardInputField, { flex: 1 }]}
+                    placeholder="CVV"
+                    value={cardCvv}
+                    onChangeText={setCardCvv}
+                    secureTextEntry
+                    maxLength={4}
+                    keyboardType="numeric"
+                    placeholderTextColor="#94A3B8"
+                  />
                 </View>
               </View>
             )}
+          </View>
 
-            {/* Security Trust Badge */}
-            <View style={styles.trustBadgePayNear}>
-              <Text style={styles.trustBadgePayText}>🔒 Secure Payment • 256-bit Encrypted Government Gateway</Text>
-            </View>
+          {/* Spacing for bottom bar */}
+          <View style={{ height: 100 }} />
+        </ScrollView>
 
+        {/* ============================================================== */}
+        {/* STICKY BOTTOM BAR (₹ Amount + Pay Now)                          */}
+        {/* ============================================================== */}
+        <View style={styles.bottomBar}>
+          <View style={styles.amountContainer}>
+            <Text style={styles.totalAmountText}>₹{totalAmount.toFixed(2)}</Text>
+            <Text style={styles.amountSubtext}>Repay net Amount</Text>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.payNowButton, processing && styles.payNowButtonDisabled]}
+            onPress={handlePay}
+            disabled={processing}
+            activeOpacity={0.85}
+          >
             {processing ? (
-              <View style={styles.processingBox}>
-                <ActivityIndicator size="small" color="#0B3D91" />
-                <Text style={styles.processingText}>Authenticating with Bank Gateway & Issuing Receipt...</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ActivityIndicator size="small" color="#FFFFFF" />
+                <Text style={styles.payNowButtonText}>Processing...</Text>
               </View>
             ) : (
-              <TouchableOpacity style={styles.payBtn} onPress={handlePay}>
-                <Text style={styles.payBtnText}>PAY ₹{totalAmount.toFixed(2)} VIA {currentMethodObj?.name.toUpperCase()} →</Text>
-              </TouchableOpacity>
+              <Text style={styles.payNowButtonText}>Pay Now</Text>
             )}
-
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose} disabled={processing}>
-              <Text style={styles.closeText}>Cancel Transaction</Text>
-            </TouchableOpacity>
-          </ScrollView>
+          </TouchableOpacity>
         </View>
-      </View>
+
+        {/* Processing Modal Overlay */}
+        {processing && (
+          <View style={styles.processingOverlay}>
+            <View style={styles.processingCard}>
+              <ActivityIndicator size="large" color="#1E88E5" />
+              <Text style={styles.processingCardTitle}>Authenticating Payment</Text>
+              <Text style={styles.processingCardSub}>{processingStatus}</Text>
+              <View style={styles.processingTrustRow}>
+                <Text style={styles.processingTrustText}>🔒 256-Bit NPCI Encrypted UPI Gateway</Text>
+              </View>
+            </View>
+          </View>
+        )}
+      </SafeAreaView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
+  safeContainer: {
     flex: 1,
-    backgroundColor: 'rgba(6, 30, 71, 0.75)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16
+    backgroundColor: '#F8FAFC'
   },
-  card: {
-    backgroundColor: '#FFFFFF',
-    width: '100%',
-    maxWidth: 440,
-    maxHeight: '90%',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    overflow: 'hidden',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4
-  },
+
+  /* Blue Header */
   headerBar: {
-    backgroundColor: '#061E47',
+    height: 56,
+    backgroundColor: '#1E88E5',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4
+  },
+  backButton: {
+    width: 36,
+    height: 36,
     alignItems: 'center',
-    borderBottomWidth: 3,
-    borderBottomColor: '#FF9933'
+    justifyContent: 'center'
   },
-  trustBadgeTop: {
-    backgroundColor: 'rgba(255, 153, 51, 0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FF9933',
-    marginBottom: 6
+  backArrowText: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: 'bold'
   },
-  trustBadgeTopText: {
-    color: '#FF9933',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#FFFFFF'
-  },
-  subTitle: {
-    fontSize: 10,
-    color: '#CBD5E1',
-    marginTop: 2
-  },
-  body: {
-    padding: 16
-  },
-  bookingRef: {
-    fontSize: 11,
-    color: '#64748B',
-    fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 10
-  },
-  billBox: {
-    backgroundColor: '#F8FAFC',
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    marginBottom: 12
-  },
-  billRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4
-  },
-  billItemLabel: {
-    fontSize: 11,
-    color: '#475569'
-  },
-  billItemVal: {
-    fontSize: 11,
-    color: '#0F172A',
-    fontWeight: '700'
-  },
-  feeWaiver: {
-    fontSize: 11,
-    color: '#138808',
-    fontWeight: '700'
-  },
-  billDivider: {
-    height: 1,
-    backgroundColor: '#CBD5E1',
-    marginVertical: 6
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center'
-  },
-  totalLabel: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#0F172A'
-  },
-  totalAmount: {
+  headerTitle: {
+    color: '#FFFFFF',
     fontSize: 18,
-    fontWeight: '800',
-    color: '#0B3D91'
+    fontWeight: '600'
   },
-  upiAppsContainer: {
-    marginBottom: 12
+
+  scrollContent: {
+    flex: 1
   },
-  supportedLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginBottom: 8
-  },
-  upiLogosGrid: {
+
+  /* Green Cashback Banner */
+  cashbackBanner: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'space-between'
-  },
-  paymentTile: {
-    width: '31%',
-    height: 60,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: '#CBD5E1',
-    justifyContent: 'center',
     alignItems: 'center',
-    position: 'relative',
-    padding: 4
+    backgroundColor: '#ECFDF5',
+    marginHorizontal: 16,
+    marginTop: 14,
+    marginBottom: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#A7F3D0'
   },
-  paymentTileSelected: {
-    borderColor: '#0B3D91',
-    backgroundColor: '#EFF6FF',
-    borderWidth: 2.5
+  cashbackIconBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#059669',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10
   },
-  logoImage: {
-    width: '100%',
-    height: 32
-  },
-  tileName: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#475569',
-    marginTop: 2
-  },
-  tileNameSelected: {
-    color: '#0B3D91',
+  cashbackPercentText: {
+    color: '#059669',
+    fontSize: 12,
     fontWeight: '800'
   },
-  selectedCheckBadge: {
-    position: 'absolute',
-    top: -5,
-    right: -5,
-    backgroundColor: '#0B3D91',
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center'
+  cashbackBannerText: {
+    color: '#065F46',
+    fontSize: 12,
+    fontWeight: '500',
+    flex: 1
   },
-  checkText: {
+
+  /* Section Headers */
+  sectionHeaderBox: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8
+  },
+  sectionHeaderText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+    letterSpacing: 0.2
+  },
+
+  /* Section Cards */
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 16
+  },
+  paymentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14
+  },
+  rowDivider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+    marginLeft: 48
+  },
+
+  /* Logos */
+  logoCirclePhonePe: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#5F259F',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14
+  },
+  phonePeLogoText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: 16,
     fontWeight: '900'
   },
-  inputGroup: {
-    marginBottom: 10
-  },
-  label: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginBottom: 4
-  },
-  input: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#CBD5E1',
+
+  logoSquareAnyUpi: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
     borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14
+  },
+  anyUpiLogoText: {
+    color: '#0F172A',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5
+  },
+
+  logoGPayBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    marginRight: 14
+  },
+  gpayLogoLetterG: {
+    color: '#4285F4',
+    fontSize: 14,
+    fontWeight: '900'
+  },
+  gpayLogoText: {
+    color: '#5F6368',
+    fontSize: 9,
+    fontWeight: '700'
+  },
+
+  logoCirclePaytm: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#E0F2FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    marginRight: 14
+  },
+  paytmLogoPay: {
+    color: '#002E6E',
+    fontSize: 10,
+    fontWeight: '900'
+  },
+  paytmLogoTm: {
+    color: '#00BAF2',
+    fontSize: 10,
+    fontWeight: '900'
+  },
+
+  logoCardBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14
+  },
+  cardIconText: {
+    fontSize: 16
+  },
+
+  /* Info Texts */
+  methodInfoBox: {
+    flex: 1,
+    justifyContent: 'center'
+  },
+  methodTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1E293B'
+  },
+  methodSubtext: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2
+  },
+
+  cashbackTagRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 4,
+    paddingRight: 10
+  },
+  greenCheckCircle: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#059669',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 5,
+    marginTop: 1
+  },
+  greenCheckCircleText: {
+    color: '#FFFFFF',
+    fontSize: 8,
+    fontWeight: '900'
+  },
+  paytmCashbackText: {
+    fontSize: 10.5,
+    color: '#059669',
+    fontWeight: '500',
+    lineHeight: 14,
+    flex: 1
+  },
+  tncLink: {
+    color: '#059669',
+    fontWeight: '700',
+    textDecorationLine: 'underline'
+  },
+
+  chevronRightText: {
+    fontSize: 16,
+    color: '#94A3B8',
+    fontWeight: 'bold',
+    marginLeft: 8
+  },
+
+  /* Radio Button */
+  radioButtonOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8
+  },
+  radioButtonOuterSelected: {
+    borderColor: '#1E88E5'
+  },
+  radioButtonInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#1E88E5'
+  },
+
+  /* Expandable Card Form */
+  cardInputContainer: {
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9'
+  },
+  cardInputField: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
     borderRadius: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    color: '#0F172A',
-    fontSize: 12,
-    fontWeight: '600'
+    fontSize: 13,
+    color: '#0F172A'
   },
-  bankSelectBox: {
-    backgroundColor: '#F8FAFC',
-    borderColor: '#CBD5E1',
-    borderWidth: 1,
-    borderRadius: 6,
-    padding: 10
-  },
-  bankSelectText: {
-    fontSize: 12,
-    color: '#0F172A',
-    fontWeight: '700'
-  },
-  trustBadgePayNear: {
-    backgroundColor: '#F0FDF4',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#86EFAC',
-    alignItems: 'center',
-    marginBottom: 10
-  },
-  trustBadgePayText: {
-    color: '#138808',
-    fontSize: 10,
-    fontWeight: '700'
-  },
-  processingBox: {
+
+  /* Sticky Bottom Bar */
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 72,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 12
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6
   },
-  processingText: {
-    color: '#0B3D91',
-    fontSize: 12,
-    fontWeight: '600'
+  amountContainer: {
+    justifyContent: 'center'
   },
-  payBtn: {
-    backgroundColor: '#FF9933',
+  totalAmountText: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A'
+  },
+  amountSubtext: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2
+  },
+  payNowButton: {
+    backgroundColor: '#1E88E5',
     paddingVertical: 12,
+    paddingHorizontal: 32,
     borderRadius: 8,
     alignItems: 'center',
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#E65100'
+    justifyContent: 'center',
+    elevation: 2
   },
-  payBtnText: {
-    color: '#061E47',
-    fontWeight: '800',
-    fontSize: 12,
-    letterSpacing: 0.5
+  payNowButtonDisabled: {
+    backgroundColor: '#93C5FD'
   },
-  closeBtn: {
+  payNowButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700'
+  },
+
+  /* Processing Overlay */
+  processingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.7)',
     alignItems: 'center',
-    paddingVertical: 4
+    justifyContent: 'center',
+    zIndex: 100,
+    padding: 24
   },
-  closeText: {
+  processingCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 24,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 320,
+    elevation: 8
+  },
+  processingCardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginTop: 14
+  },
+  processingCardSub: {
+    fontSize: 12,
     color: '#64748B',
-    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 6
+  },
+  processingTrustRow: {
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9'
+  },
+  processingTrustText: {
+    fontSize: 10,
+    color: '#059669',
     fontWeight: '600'
   }
 });

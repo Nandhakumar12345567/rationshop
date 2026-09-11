@@ -34,14 +34,9 @@ class IssueController {
 
       // Query database for latest booking record status by booking_id OR qr_token
       let bookingRes = await db.query('SELECT * FROM bookings WHERE booking_id = $1 OR qr_token = $1', [booking_id]);
-      
-      // If not found by exact ID, search recent active bookings for demonstration
-      if (bookingRes.rows.length === 0) {
-        bookingRes = await db.query("SELECT * FROM bookings WHERE status != 'CANCELLED' ORDER BY created_at DESC LIMIT 1");
-      }
 
       if (bookingRes.rows.length === 0) {
-        return res.status(404).json({ success: false, error: 'No active booking record found in system' });
+        return res.status(404).json({ success: false, error: 'Invalid QR Token: No matching booking record found in system' });
       }
 
       const booking = bookingRes.rows[0];

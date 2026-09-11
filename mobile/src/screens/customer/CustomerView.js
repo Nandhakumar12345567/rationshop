@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { colors } from '../../theme/colors';
 import { getCategoryBadgeStyle } from '../../theme/theme';
@@ -10,6 +10,9 @@ import Footer from '../../components/Footer';
 import ItemImage from '../../components/ItemImage';
 import CardholderAvatar from '../../components/CardholderAvatar';
 import DigitalSmartCard from '../../components/DigitalSmartCard';
+import MonthlyCalendarModal from '../../components/MonthlyCalendarModal';
+import SlotMonitoringQueueTracking from '../../components/SlotMonitoringQueueTracking';
+import RationTokenBookingGrid from '../../components/RationTokenBookingGrid';
 import { getFamilyMembersForCount } from '../../utils/familyMembers';
 
 export default function CustomerView({ user, lang, profileImage, onImageSelected }) {
@@ -24,11 +27,18 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
   
   // Date, Slot & Custom Token Number State
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const selectedDateRef = useRef(selectedDate);
+  useEffect(() => {
+    selectedDateRef.current = selectedDate;
+  }, [selectedDate]);
+
   const [slots, setSlots] = useState([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [selectedTokenNumber, setSelectedTokenNumber] = useState(1);
   const [isTodayFull, setIsTodayFull] = useState(false);
   const [activeBookings, setActiveBookings] = useState([]);
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
   
   // Live Queue Monitor State
   const [queueStatus, setQueueStatus] = useState(null);
@@ -43,6 +53,7 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
   // Socket Realtime Connection State
   const [socketConnected, setSocketConnected] = useState(false);
 
+  // Initial Data & Realtime Socket Connection (Mounted once)
   useEffect(() => {
     loadData();
     socketManager.connect('shop_1');
@@ -58,7 +69,9 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
 
     const unsubSlots = socketManager.subscribeToSlots((slotPayload) => {
       console.log('[Socket Live] Slot update received:', slotPayload);
-      loadSlotsForDate(selectedDate);
+      if (selectedDateRef.current) {
+        loadSlotsForDate(selectedDateRef.current);
+      }
     });
 
     const unsubStock = socketManager.subscribeToStock((stockPayload) => {
@@ -81,7 +94,7 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
       unsubStock();
       unsubIssue();
     };
-  }, [selectedDate]);
+  }, []);
 
   useEffect(() => {
     if (user?.family_size) {
@@ -112,8 +125,8 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
       });
       setSelectedQuantities(initialQtys);
 
-      const todayStr = new Date().toISOString().split('T')[0];
-      await loadSlotsForDate(todayStr);
+      const targetDate = selectedDateRef.current || new Date().toISOString().split('T')[0];
+      await loadSlotsForDate(targetDate);
       await fetchQueue();
     } catch (err) {
       console.error('[Customer Load Error]', err);
@@ -123,6 +136,7 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
   };
 
   const loadSlotsForDate = async (dateStr) => {
+    setSlotsLoading(true);
     try {
       const slotsRes = await api.getSlots(dateStr);
       const fetchedSlots = slotsRes.slots || [];
@@ -146,7 +160,11 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
           if (firstAvail) {
             setSelectedSlot(firstAvail.slot_time);
             pickFirstAvailableToken(firstAvail);
+          } else {
+            setSelectedSlot(null);
           }
+        } else {
+          setSelectedSlot(null);
         }
       } else {
         setIsTodayFull(false);
@@ -155,11 +173,17 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
           if (firstAvail) {
             setSelectedSlot(firstAvail.slot_time);
             pickFirstAvailableToken(firstAvail);
+          } else {
+            setSelectedSlot(null);
           }
+        } else {
+          setSelectedSlot(null);
         }
       }
     } catch (err) {
       console.error('[Load Slots Error]', err);
+    } finally {
+      setSlotsLoading(false);
     }
   };
 
@@ -439,8 +463,19 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
       const d = new Date(today);
       d.setDate(d.getDate() + i);
       const isoStr = d.toISOString().split('T')[0];
-      const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      const label = i === 0 
+        ? (lang === 'ta' ? 'இன்று' : 'Today') 
+        : i === 1 
+          ? (lang === 'ta' ? 'நாளை' : 'Tomorrow') 
+          : d.toLocaleDateString(lang === 'ta' ? 'ta-IN' : 'en-US', { weekday: 'short', month: 'short', day: 'numeric' });
       dates.push({ isoStr, label });
+    }
+    // If selectedDate was chosen from the monthly calendar and is outside the initial 7 days
+    if (selectedDate && !dates.some(d => d.isoStr === selectedDate)) {
+      const parts = selectedDate.split('-');
+      const selD = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      const label = selD.toLocaleDateString(lang === 'ta' ? 'ta-IN' : 'en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      dates.unshift({ isoStr: selectedDate, label: `🗓️ ${label}` });
     }
     return dates;
   };
@@ -456,7 +491,7 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
 
   const categoryBadge = getCategoryBadgeStyle(user.category);
   const dateOptions = getDateOptions();
-  const selectedSlotObj = slots.find(s => s.slot_time === selectedSlot);
+  const selectedSlotObj = slots.find(s => s.slot_time === selectedSlot) || (slots.length > 0 ? slots[0] : null);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 20 }}>
@@ -683,8 +718,44 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📅 Select Pickup Appointment Slot</Text>
-        <Text style={styles.sectionSubtitle}>Maximum capacity cap: 20 tokens per slot per hour.</Text>
+        <View style={styles.appointmentHeaderRow}>
+          <View style={{ flex: 1 }}>
+            <View style={styles.appointmentTitleRow}>
+              {/* Interactive Calendar Logo - Click to open Monthly Calendar */}
+              <TouchableOpacity
+                onPress={() => setShowCalendarModal(true)}
+                style={styles.calendarLogoBtn}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.calendarLogoEmoji}>🗓️</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                onPress={() => setShowCalendarModal(true)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.sectionTitle}>
+                  {lang === 'ta' ? 'முன்பதிவு நேர ஸ்லாட்டைத் தேர்ந்தெடுக்கவும்' : 'Select Pickup Appointment Slot'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.sectionSubtitle}>
+              {lang === 'ta' ? 'அதிகபட்ச வரம்பு: ஒரு மணி நேரத்திற்கு 20 டோக்கன்கள்.' : 'Maximum capacity cap: 20 tokens per slot per hour.'}
+            </Text>
+          </View>
+
+          {/* Dedicated Calendar Open Button */}
+          <TouchableOpacity
+            style={styles.openCalendarBtn}
+            onPress={() => setShowCalendarModal(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.openCalendarIcon}>📅</Text>
+            <Text style={styles.openCalendarText}>
+              {lang === 'ta' ? 'நாள்காட்டி' : 'Calendar'}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Date Selector Tabs */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dateSelectorScroll}>
@@ -701,6 +772,16 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
               </TouchableOpacity>
             );
           })}
+
+          {/* Quick open calendar tab at the end of the scroll list */}
+          <TouchableOpacity
+            style={styles.dateTabCalendarQuick}
+            onPress={() => setShowCalendarModal(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.dateTabCalendarIcon}>🗓️</Text>
+            <Text style={styles.dateTabCalendarText}>{lang === 'ta' ? '+ தேதிகள்' : '+ More Dates'}</Text>
+          </TouchableOpacity>
         </ScrollView>
 
         {/* Banner if Today is Fully Booked */}
@@ -715,100 +796,62 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
         )}
 
         {/* Slot Grid */}
-        <View style={styles.slotGrid}>
-          {slots.map((slot) => {
-            const isSelected = selectedSlot === slot.slot_time;
-            return (
-              <TouchableOpacity
-                key={slot.slot_time}
-                style={[
-                  styles.slotCard,
-                  isSelected && styles.slotCardSelected,
-                  slot.is_full && styles.slotCardFull
-                ]}
-                onPress={() => handleSlotSelect(slot)}
-                disabled={slot.is_full}
-              >
-                <View style={styles.slotHeaderRow}>
-                  <Text style={[styles.slotTime, isSelected && styles.slotTimeSelected]}>{slot.display_time}</Text>
-                  {isSelected && <Text style={styles.selectedBadgeCheck}>✓ Slot Selected</Text>}
-                </View>
+        {slotsLoading ? (
+          <View style={{ paddingVertical: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', marginBottom: 12 }}>
+            <ActivityIndicator size="small" color="#0B3D91" />
+            <Text style={{ fontSize: 11, color: '#64748B', marginTop: 8, fontWeight: '700' }}>
+              {lang === 'ta' ? 'ஸ்லாட்டுகள் சரிபார்க்கப்படுகின்றன...' : 'Fetching available slots for selected date...'}
+            </Text>
+          </View>
+        ) : slots.length === 0 ? (
+          <View style={{ paddingVertical: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0', marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, color: '#64748B', fontWeight: '600' }}>
+              {lang === 'ta' ? 'இந்த தேதிக்கு ஸ்லாட்டுகள் கிடைக்கவில்லை' : 'No appointment slots available for this date'}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.slotGrid}>
+            {slots.map((slot) => {
+              const isSelected = selectedSlot === slot.slot_time;
+              return (
+                <TouchableOpacity
+                  key={slot.slot_time}
+                  style={[
+                    styles.slotCard,
+                    isSelected && styles.slotCardSelected,
+                    slot.is_full && styles.slotCardFull
+                  ]}
+                  onPress={() => handleSlotSelect(slot)}
+                  disabled={slot.is_full}
+                >
+                  <View style={styles.slotHeaderRow}>
+                    <Text style={[styles.slotTime, isSelected && styles.slotTimeSelected]}>{slot.display_time}</Text>
+                    {isSelected && <Text style={styles.selectedBadgeCheck}>✓ Slot Selected</Text>}
+                  </View>
 
-                <View style={styles.slotCapacityRow}>
-                  <Text style={[styles.slotCapacity, isSelected && styles.slotCapacitySelected]}>
-                    Booked: {slot.booked_count} / 20
-                  </Text>
-                  {slot.is_full ? (
-                    <View style={styles.fullBadge}><Text style={styles.fullBadgeText}>FULL (20/20)</Text></View>
-                  ) : (
-                    <View style={styles.bookBadge}><Text style={styles.bookBadgeText}>SELECT SLOT</Text></View>
-                  )}
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* Interactive Self-Token Picker Grid (#1 to #20) */}
-        {selectedSlotObj && (
-          <View style={styles.tokenPickerBox}>
-            <View style={styles.tokenPickerHeader}>
-              <Text style={styles.tokenPickerTitle}>🎟️ Choose Your Individual Token Number (1 to 20):</Text>
-              <Text style={styles.tokenPickerSub}>Tap any available green token number to reserve your exact position in queue.</Text>
-            </View>
-
-            <View style={styles.tokenGrid}>
-              {Array.from({ length: 20 }, (_, i) => i + 1).map((num) => {
-                const isBooked = (selectedSlotObj.booked_token_numbers || []).includes(num);
-                const isSelected = selectedTokenNumber === num;
-                return (
-                  <TouchableOpacity
-                    key={num}
-                    style={[
-                      styles.tokenPill,
-                      isSelected && styles.tokenPillSelected,
-                      isBooked && styles.tokenPillBooked
-                    ]}
-                    disabled={isBooked}
-                    onPress={() => setSelectedTokenNumber(num)}
-                  >
-                    <Text style={[
-                      styles.tokenPillNum,
-                      isSelected && styles.tokenPillTextSelected,
-                      isBooked && styles.tokenPillTextBooked
-                    ]}>
-                      #{num}
+                  <View style={styles.slotCapacityRow}>
+                    <Text style={[styles.slotCapacity, isSelected && styles.slotCapacitySelected]}>
+                      Booked: {slot.booked_count} / 20
                     </Text>
-                    <Text style={[
-                      styles.tokenPillStatus,
-                      isSelected && styles.tokenPillTextSelected,
-                      isBooked && styles.tokenPillTextBooked
-                    ]}>
-                      {isBooked ? 'TAKEN' : isSelected ? 'YOURS' : 'AVAIL'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <View style={styles.tokenLegendRow}>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: '#DCFCE7', borderColor: '#166534' }]} />
-                <Text style={styles.legendText}>Available</Text>
-              </View>
-
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: '#0B3D91' }]} />
-                <Text style={styles.legendText}>Your Selection</Text>
-              </View>
-
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: '#FEE2E2', borderColor: '#991B1B' }]} />
-                <Text style={styles.legendText}>Booked by others</Text>
-              </View>
-            </View>
+                    {slot.is_full ? (
+                      <View style={styles.fullBadge}><Text style={styles.fullBadgeText}>FULL (20/20)</Text></View>
+                    ) : (
+                      <View style={styles.bookBadge}><Text style={styles.bookBadgeText}>SELECT SLOT</Text></View>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
+
+        {/* Token Booking 4x5 Grid Interface (Exact Image 2 Match) */}
+        <RationTokenBookingGrid
+          selectedSlotObj={selectedSlotObj}
+          selectedTokenNumber={selectedTokenNumber}
+          onSelectToken={(num) => setSelectedTokenNumber(num)}
+          lang={lang}
+        />
       </View>
 
       {/* Government Checkout Bar */}
@@ -887,245 +930,17 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
           ))
         )}
       </View>
-      {/* Detailed Live Queue Tracker & Time Analysis Engine */}
-      <View style={styles.sectionDividerBar}>
-        <Text style={styles.sectionDividerText}>REAL-TIME QUEUE MONITOR & TIME ANALYSIS ENGINE</Text>
-      </View>
-
-      <View style={styles.section}>
-        <View style={styles.queueTrackerHeader}>
-          <Text style={styles.sectionTitle}>⚡ Live POS Telemetry & Token Progress</Text>
-          <View style={styles.livePulseTag}>
-            <View style={styles.pulseDotGreen} />
-            <Text style={styles.livePulseText}>LIVE 3s SYNC</Text>
-          </View>
-        </View>
-
-        <Text style={styles.sectionSubtitle}>
-          Fair Price Shop #401 (T. Nagar) Counter Telemetry | Processing Velocity: ~3.5 Mins / Beneficiary
-        </Text>
-
-        {/* Turn Status Alert Banner */}
-        {((queueStatus?.tokens_ahead !== undefined ? queueStatus.tokens_ahead : Math.max(0, demoUserToken - demoServingToken))) === 0 ? (
-          <View style={[styles.turnBanner, styles.turnBannerNow]}>
-            <Text style={styles.turnBannerIcon}>🎉</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.turnBannerTitleNow}>IT IS YOUR TURN NOW!</Text>
-              <Text style={styles.turnBannerDescNow}>Please proceed to Counter #1 at FPS #401 T. Nagar with your QR Token Pass.</Text>
-            </View>
-          </View>
-        ) : ((queueStatus?.tokens_ahead !== undefined ? queueStatus.tokens_ahead : Math.max(0, demoUserToken - demoServingToken))) <= 2 ? (
-          <View style={[styles.turnBanner, styles.turnBannerSoon]}>
-            <Text style={styles.turnBannerIcon}>⚡</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.turnBannerTitleSoon}>YOUR TURN IS UPCOMING SOON!</Text>
-              <Text style={styles.turnBannerDescSoon}>Only {(queueStatus?.tokens_ahead !== undefined ? queueStatus.tokens_ahead : Math.max(0, demoUserToken - demoServingToken))} token(s) ahead. Please keep your QR Pass ready.</Text>
-            </View>
-          </View>
-        ) : (
-          <View style={[styles.turnBanner, styles.turnBannerQueued]}>
-            <Text style={styles.turnBannerIcon}>⏳</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.turnBannerTitleQueued}>TOKEN QUEUED IN LINE ({queueStatus?.tokens_ahead !== undefined ? queueStatus.tokens_ahead : Math.max(0, demoUserToken - demoServingToken)} TOKENS AHEAD)</Text>
-              <Text style={styles.turnBannerDescQueued}>
-                Completed: Tokens 1-{demoServingToken - 1} | Serving: Token #{demoServingToken} | Your Token: #{demoUserToken}
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* 4 KPI Metrics Cards */}
-        <View style={styles.trackerKpiGrid}>
-          <View style={[styles.trackerKpiCard, { borderColor: '#166534', backgroundColor: '#F0FDF4' }]}>
-            <Text style={styles.trackerKpiValGreen}>Tokens 1 to {demoServingToken - 1}</Text>
-            <Text style={styles.trackerKpiLabel}>Received Items ✅</Text>
-          </View>
-
-          <View style={[styles.trackerKpiCard, { borderColor: '#EA580C', backgroundColor: '#FFF7ED' }]}>
-            <Text style={styles.trackerKpiValGold}>Token #{demoServingToken}</Text>
-            <Text style={styles.trackerKpiLabel}>Currently Serving ⚡</Text>
-          </View>
-
-          <View style={[styles.trackerKpiCard, { borderColor: '#1E3A8A', backgroundColor: '#EFF6FF' }]}>
-            <Text style={styles.trackerKpiValBlue}>Token #{demoUserToken}</Text>
-            <Text style={styles.trackerKpiLabel}>Your Token ⭐ ({Math.max(0, demoUserToken - demoServingToken)} ahead)</Text>
-          </View>
-
-          <View style={[styles.trackerKpiCard, { borderColor: '#7C3AED', backgroundColor: '#F5F3FF' }]}>
-            <Text style={styles.trackerKpiValPurple}>
-              ~{Math.max(0, demoUserToken - demoServingToken) * 3.5} Mins
-            </Text>
-            <Text style={styles.trackerKpiLabel}>Est. Wait Time ⏱️</Text>
-          </View>
-        </View>
-
-        {/* Interactive Scenario Presets Toolbar */}
-        <View style={styles.scenarioBar}>
-          <View style={styles.scenarioBarHeader}>
-            <Text style={styles.scenarioTitle}>🎮 Live Scenario Simulation Controls:</Text>
-            <TouchableOpacity 
-              style={styles.resetBtn}
-              onPress={() => {
-                setDemoServingToken(6);
-                setDemoUserToken(12);
-                fetchQueue(12);
-              }}
-            >
-              <Text style={styles.resetBtnText}>🔄 Reset Example (Serving #6 | Your Token #12)</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.scenarioPickerRow}>
-            <View style={{ flex: 1, marginRight: 6 }}>
-              <Text style={styles.pickerSubLabel}>Now Serving Token #:</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
-                {Array.from({ length: 15 }, (_, i) => i + 1).map(num => (
-                  <TouchableOpacity
-                    key={num}
-                    style={[styles.smallPill, demoServingToken === num && styles.smallPillActiveServing]}
-                    onPress={() => {
-                      setDemoServingToken(num);
-                    }}
-                  >
-                    <Text style={[styles.smallPillText, demoServingToken === num && styles.smallPillTextActive]}>
-                      #{num}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-
-            <View style={{ flex: 1, marginLeft: 6 }}>
-              <Text style={styles.pickerSubLabel}>Your Token #:</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
-                {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
-                  <TouchableOpacity
-                    key={num}
-                    style={[styles.smallPill, demoUserToken === num && styles.smallPillActiveUser]}
-                    onPress={() => {
-                      setDemoUserToken(num);
-                      fetchQueue(num);
-                    }}
-                  >
-                    <Text style={[styles.smallPillText, demoUserToken === num && styles.smallPillTextActive]}>
-                      #{num}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          </View>
-        </View>
-
-
-        {/* Interactive 20 Token Grid Visualization (1 to 20) */}
-        <View style={styles.gridContainer}>
-          <Text style={styles.gridContainerTitle}>📋 Daily 20-Token Live Status Grid (1 to 20)</Text>
-
-          <View style={styles.tokensVisualGrid}>
-            {Array.from({ length: 20 }, (_, i) => i + 1).map(num => {
-              const isCompleted = num < demoServingToken;
-              const isServing = num === demoServingToken;
-              const isUser = num === demoUserToken;
-              const isWaiting = num > demoServingToken && num < demoUserToken;
-
-              let bg = '#F8FAFC';
-              let borderColor = '#CBD5E1';
-              let badgeBg = '#E2E8F0';
-              let badgeText = '#475569';
-              let statusLabel = 'Upcoming';
-              let icon = '';
-
-              if (isCompleted) {
-                bg = '#DCFCE7';
-                borderColor = '#166534';
-                badgeBg = '#166534';
-                badgeText = '#FFFFFF';
-                statusLabel = 'Received';
-                icon = '✅';
-              } else if (isServing) {
-                bg = '#FFEDD5';
-                borderColor = '#EA580C';
-                badgeBg = '#EA580C';
-                badgeText = '#FFFFFF';
-                statusLabel = 'Serving';
-                icon = '⚡';
-              } else if (isUser) {
-                bg = '#DBEAFE';
-                borderColor = '#1E3A8A';
-                badgeBg = '#1E3A8A';
-                badgeText = '#FFFFFF';
-                statusLabel = 'YOURS';
-                icon = '⭐';
-              } else if (isWaiting) {
-                bg = '#FEF9C3';
-                borderColor = '#CA8A04';
-                badgeBg = '#CA8A04';
-                badgeText = '#FFFFFF';
-                statusLabel = 'Waiting';
-                icon = '⏳';
-              }
-
-              return (
-                <View 
-                  key={num} 
-                  style={[
-                    styles.tokenBox,
-                    { backgroundColor: bg, borderColor },
-                    isUser && styles.tokenBoxUserGlow
-                  ]}
-                >
-                  <Text style={styles.tokenBoxNum}>#{num}</Text>
-                  <View style={[styles.tokenBoxBadge, { backgroundColor: badgeBg }]}>
-                    <Text style={[styles.tokenBoxBadgeText, { color: badgeText }]}>
-                      {icon} {statusLabel}
-                    </Text>
-                  </View>
-                  <Text style={styles.tokenBoxSub}>
-                    {isCompleted ? 'Done' : isServing ? 'Now' : isUser ? 'Your Turn' : `+${(num - demoServingToken) * 3.5}m`}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-
-          {/* Color Legend */}
-          <View style={styles.gridLegendRow}>
-            <View style={styles.legendPill}>
-              <View style={[styles.legendColorDot, { backgroundColor: '#166534' }]} />
-              <Text style={styles.legendPillText}>1 - {demoServingToken - 1}: Received Items</Text>
-            </View>
-
-            <View style={styles.legendPill}>
-              <View style={[styles.legendColorDot, { backgroundColor: '#EA580C' }]} />
-              <Text style={styles.legendPillText}>#{demoServingToken}: Serving Now</Text>
-            </View>
-
-            <View style={styles.legendPill}>
-              <View style={[styles.legendColorDot, { backgroundColor: '#CA8A04' }]} />
-              <Text style={styles.legendPillText}>Waiting in Line</Text>
-            </View>
-
-            <View style={styles.legendPill}>
-              <View style={[styles.legendColorDot, { backgroundColor: '#1E3A8A' }]} />
-              <Text style={styles.legendPillText}>#{demoUserToken}: Your Token</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Daily Counter Progress Bar */}
-        <View style={styles.progressTrackerContainer}>
-          <View style={styles.progressTrackerLabelRow}>
-            <Text style={styles.progressTrackerTitle}>Fair Price Shop Counter Progress:</Text>
-            <Text style={styles.progressTrackerPercent}>
-              {demoServingToken - 1} / 20 Tokens Served ({Math.round(((demoServingToken - 1) / 20) * 100)}%)
-            </Text>
-          </View>
-          <View style={styles.progressTrackBar}>
-            <View style={[styles.progressFillBar, { width: `${Math.min(100, (((demoServingToken - 1) / 20) * 100))}%` }]} />
-          </View>
-        </View>
-      </View>
+      {/* Slot Monitoring & Queue Tracking */}
+      <SlotMonitoringQueueTracking
+        user={user}
+        lang={lang}
+        activeBookings={activeBookings}
+        selectedSlot={selectedSlot}
+        selectedSlotObj={selectedSlotObj}
+        selectedDate={selectedDate}
+        slots={slots}
+        onSelectSlot={(slot) => handleSlotSelect(slot)}
+      />
 
       <Footer />
 
@@ -1142,7 +957,20 @@ export default function CustomerView({ user, lang, profileImage, onImageSelected
       <QRModal
         visible={!!activeQRBooking}
         booking={activeQRBooking}
+        user={user}
+        lang={lang}
         onClose={() => setActiveQRBooking(null)}
+      />
+
+      {/* Monthly Appointment Calendar Modal */}
+      <MonthlyCalendarModal
+        visible={showCalendarModal}
+        selectedDate={selectedDate}
+        onSelectDate={(newDate) => {
+          loadSlotsForDate(newDate);
+        }}
+        onClose={() => setShowCalendarModal(false)}
+        lang={lang}
       />
     </ScrollView>
   );
@@ -2152,6 +1980,61 @@ const styles = StyleSheet.create({
     color: '#166534',
     fontWeight: '800'
   },
+  appointmentHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    flexWrap: 'wrap',
+    gap: 8
+  },
+  appointmentTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  calendarLogoBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#93C5FD',
+    shadowColor: '#0B3D91',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2
+  },
+  calendarLogoEmoji: {
+    fontSize: 18
+  },
+  openCalendarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#EFF6FF',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#0B3D91',
+    shadowColor: '#0B3D91',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2
+  },
+  openCalendarIcon: {
+    fontSize: 14
+  },
+  openCalendarText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0B3D91'
+  },
   dateSelectorScroll: {
     marginBottom: 12
   },
@@ -2183,6 +2066,27 @@ const styles = StyleSheet.create({
   },
   dateTabSubSelected: {
     color: '#93C5FD'
+  },
+  dateTabCalendarQuick: {
+    backgroundColor: '#EFF6FF',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginRight: 8,
+    borderWidth: 1.5,
+    borderColor: '#93C5FD',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  dateTabCalendarIcon: {
+    fontSize: 14
+  },
+  dateTabCalendarText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#0B3D91',
+    marginTop: 2
   },
   todayFullBanner: {
     backgroundColor: '#FEF2F2',

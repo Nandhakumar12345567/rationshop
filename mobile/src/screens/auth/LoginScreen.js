@@ -16,10 +16,8 @@ import { api, setAuthToken } from '../../api/client';
 import Footer from '../../components/Footer';
 import GovEmblem from '../../components/GovEmblem';
 import AppLogo from '../../components/AppLogo';
+import IdCardScanner from '../../components/IdCardScanner';
 import jsQR from 'jsqr';
-
-const SAMPLE_QR_6_ASSET = require('../../../assets/smart_card_6_members_qr.png');
-const SAMPLE_QR_5_ASSET = require('../../../assets/smart_card_5_members_qr.png');
 
 export default function LoginScreen({ lang = 'en', onLoginSuccess }) {
   const t = translations[lang] || translations.en;
@@ -40,28 +38,6 @@ export default function LoginScreen({ lang = 'en', onLoginSuccess }) {
   const [otpStep, setOtpStep] = useState(false); // false: Enter Phone, true: Enter OTP
   const [otpCode, setOtpCode] = useState('123456');
   const [otpSentNotice, setOtpSentNotice] = useState('');
-
-  // Sample QR Code Modal State ('5' | '6' | null)
-  const [activeModalQr, setActiveModalQr] = useState(null);
-
-  // Handle Download of Sample QR Code
-  const handleDownloadSampleQr = (type = '5') => {
-    const asset = type === '5' ? SAMPLE_QR_5_ASSET : SAMPLE_QR_6_ASSET;
-    const fileName = type === '5' ? 'smart_card_5_members_qr.png' : 'smart_card_6_members_qr.png';
-    if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      const imgUri = typeof asset === 'string'
-        ? asset
-        : (asset && (asset.uri || asset.default)) || `/assets/${fileName}`;
-      const link = document.createElement('a');
-      link.href = imgUri;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } else {
-      alert(`QR Code image saved at: ${fileName}`);
-    }
-  };
 
   // Animate laser scanline continuously
   useEffect(() => {
@@ -163,24 +139,34 @@ export default function LoginScreen({ lang = 'en', onLoginSuccess }) {
         });
       }
 
-      // Extract card number if QR was decoded
-      let cardToAuth = null;
-      if (decodedQr) {
-        try {
-          const parsed = JSON.parse(decodedQr);
-          cardToAuth = (parsed.card_no || parsed.cardNo || parsed.id || '').trim();
-        } catch {
-          const match = decodedQr.match(/TN-[0-9A-Za-z-]+|SHOP-[0-9A-Za-z-]+|ADMIN-[0-9A-Za-z-]+/);
-          cardToAuth = match ? match[0] : decodedQr.trim();
-        }
+      // If NO QR was found in canvas:
+      if (!decodedQr) {
+        setErrorMessage(
+          lang === 'ta'
+            ? 'தவறான படம்: இந்த படத்தில் QR குறியீடு எதுவும் இல்லை. சரியான ரேஷன் ஸ்மார்ட் கார்டு QR குறியீட்டை பதிவேற்றவும்.'
+            : 'INVALID QR CODE: No QR code found in this image. Please upload a valid Ration Smart Card QR code.'
+        );
+        return;
       }
 
-      // If no QR found in canvas, check file name or use 6-member default
+      // Extract card number if QR was decoded
+      let cardToAuth = null;
+      try {
+        const parsed = JSON.parse(decodedQr);
+        cardToAuth = (parsed.card_no || parsed.cardNo || parsed.id || '').trim();
+      } catch {
+        const match = decodedQr.match(/TN-[0-9A-Za-z-]+|SHOP-[0-9A-Za-z-]+|ADMIN-[0-9A-Za-z-]+/);
+        cardToAuth = match ? match[0] : null;
+      }
+
+      // If no valid card format in QR:
       if (!cardToAuth) {
-        if (fileName && fileName.includes('AAY')) cardToAuth = 'TN-04-AAY-109283';
-        else if (fileName && fileName.includes('APL')) cardToAuth = 'TN-04-APL-549102';
-        else if (fileName && fileName.includes('BPL')) cardToAuth = 'TN-04-BPL-883921';
-        else cardToAuth = 'TN-04-BPL-883921'; // Default 6-member card
+        setErrorMessage(
+          lang === 'ta'
+            ? 'தவறான QR குறியீடு: இது சரியான தமிழ்நாடு ரேஷன் அட்டை QR குறியீடு அல்ல.'
+            : 'INVALID QR CODE: The scanned QR does not contain a recognized Ration Card identifier.'
+        );
+        return;
       }
 
       console.log('[Authenticating Card]:', cardToAuth, 'from decoded:', decodedQr);
@@ -191,20 +177,15 @@ export default function LoginScreen({ lang = 'en', onLoginSuccess }) {
           onLoginSuccess(res.user);
         }, 400);
       } else {
-        setErrorMessage(res.error || (lang === 'ta' ? 'QR குறியீட்டை படிக்க முடியவில்லை' : 'Could not recognize QR code'));
+        setErrorMessage(res.error || (lang === 'ta' ? 'QR குறியீடு செல்லுபடியாகவில்லை (பதிவேட்டில் இல்லை)' : 'Invalid Smart Card: Not found in PDS registry'));
       }
     } catch (err) {
       console.error('[Process QR Error]', err);
-      // Fallback auth with 6-member card
-      try {
-        const fallbackRes = await api.qrLogin(null, 'TN-04-BPL-883921');
-        if (fallbackRes.success) {
-          setAuthToken(fallbackRes.token);
-          onLoginSuccess(fallbackRes.user);
-          return;
-        }
-      } catch (fbErr) {}
-      setErrorMessage(err.message || (lang === 'ta' ? 'QR குறியீட்டை சரிபார்க்க முடியவில்லை' : 'Failed to process QR image'));
+      setErrorMessage(
+        lang === 'ta'
+          ? 'தவறான படம்: QR குறியீட்டை படிக்க முடியவில்லை. சரியான QR படத்தை பதிவேற்றவும்.'
+          : 'Invalid Image: Could not decode QR code. Please upload a clear QR code image.'
+      );
     } finally {
       setLoading(false);
       setScanningActive(false);
@@ -387,192 +368,21 @@ export default function LoginScreen({ lang = 'en', onLoginSuccess }) {
           {/* ============================================================== */}
           {authMode === 'SCANNER' && (
             <View style={styles.scannerSection}>
-              {/* Demo Card Preset Selector */}
-              <View style={styles.demoCardSelectRow}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <Text style={styles.demoCardSelectLabel}>
-                    💳 {lang === 'ta' ? 'அட்டை தேர்வு (குடும்ப உறுப்பினர்கள்):' : 'Select Smart Card to Authenticate:'}
-                  </Text>
-                  <Text style={styles.demoCardSelectHint}>
-                    {lang === 'ta' ? 'அட்டையின் உறுப்பினர்கள் மட்டுமே வரும்' : 'Fixed card members only'}
-                  </Text>
-                </View>
-                <View style={styles.demoCardPills}>
-                  {DEMO_CARDS.map((c) => {
-                    const isSelected = selectedCardNo === c.cardNo;
-                    return (
-                      <TouchableOpacity
-                        key={c.cardNo}
-                        style={[styles.demoCardPill, isSelected && styles.demoCardPillActive]}
-                        onPress={() => {
-                          setSelectedCardNo(c.cardNo);
-                          setPhone(c.phone);
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[styles.demoCardPillText, isSelected && styles.demoCardPillTextActive]}>
-                          {c.members} {lang === 'ta' ? 'நபர்கள்' : 'Members'} ({c.name.split(' ')[0]})
-                        </Text>
-                        {isSelected && <Text style={styles.demoCardCheck}> ✓</Text>}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* Interactive Camera Viewfinder Box */}
-              <View style={styles.viewfinderContainer}>
-                <View style={styles.viewfinderBox}>
-                  {/* Corner Targets */}
-                  <View style={[styles.cornerBracket, styles.bracketTL]} />
-                  <View style={[styles.cornerBracket, styles.bracketTR]} />
-                  <View style={[styles.cornerBracket, styles.bracketBL]} />
-                  <View style={[styles.cornerBracket, styles.bracketBR]} />
-
-                  {/* Animated Sweeping Laser Bar */}
-                  <Animated.View style={[styles.laserBeam, { transform: [{ translateY: laserTranslateY }] }]} />
-
-                  {/* Center Content Icon & Instructions or Uploaded Preview */}
-                  {uploadedQrUri ? (
-                    <View style={styles.uploadedPreviewBox}>
-                      <Image source={{ uri: uploadedQrUri }} style={styles.uploadedQrImage} resizeMode="contain" />
-                      <View style={styles.uploadedSuccessBadge}>
-                        <Text style={styles.uploadedSuccessText}>✓ {lang === 'ta' ? 'QR படம் தேர்வு செய்யப்பட்டது' : 'QR Image Selected'}</Text>
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={styles.viewfinderContent}>
-                      <Text style={styles.qrIconGraphic}>🔲</Text>
-                      <Text style={styles.viewfinderTitle}>
-                        {lang === 'ta' ? 'ஸ்மார்ட் கார்டு QR குறியீட்டை ஸ்கேன் செய்க' : 'Align Smart Card QR Code within Frame'}
-                      </Text>
-                      <Text style={styles.viewfinderNote}>
-                        {lang === 'ta' ? 'ஆப்டிகல் சென்சார் தயார் • தானியங்கி கண்டறிதல்' : 'Optical Sensor Ready • Live Auto-Detection'}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-
-                {scanningActive && (
-                  <View style={styles.scanningOverlay}>
-                    <ActivityIndicator size="large" color="#FF9933" />
-                    <Text style={styles.scanningOverlayText}>
-                      {lang === 'ta' ? 'கார்டு சரிபார்க்கப்படுகிறது...' : 'Authenticating Smart Ration Card...'}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              {/* Single Prominent Scan Action Button */}
-              <TouchableOpacity 
-                style={styles.scanActionButton}
-                onPress={() => handleQrScanLogin()}
-                disabled={loading}
-                activeOpacity={0.8}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#061E47" />
-                ) : (
-                  <Text style={styles.scanActionButtonText}>
-                    {lang === 'ta' 
-                      ? `📸 ${DEMO_CARDS.find(c => c.cardNo === selectedCardNo)?.members || 5} உறுப்பினர்கள் கொண்ட கார்டை ஸ்கேன் செய்க →` 
-                      : `📸 SCAN SMART CARD (${DEMO_CARDS.find(c => c.cardNo === selectedCardNo)?.members || 5} MEMBERS) →`}
-                  </Text>
-                )}
-              </TouchableOpacity>
-
-              {/* OR Divider */}
-              <View style={styles.orDividerRow}>
-                <View style={styles.orDividerLine} />
-                <Text style={styles.orDividerText}>{lang === 'ta' ? 'அல்லது (OR)' : 'OR'}</Text>
-                <View style={styles.orDividerLine} />
-              </View>
-
-              {/* Gallery QR Upload Action Button */}
-              <TouchableOpacity 
-                style={styles.galleryUploadButton}
-                onPress={handlePickQrFromGallery}
-                disabled={loading}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.galleryUploadIcon}>🖼️</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.galleryUploadButtonText}>
-                    {lang === 'ta' ? 'கேலரியில் இருந்து QR பதிவேற்றவும்' : 'UPLOAD QR FROM GALLERY'}
-                  </Text>
-                  <Text style={styles.galleryUploadSubtext}>
-                    {lang === 'ta' ? 'ரேஷன் கார்டு படம் அல்லது ஸ்கிரீன்ஷாட் தேர்வு செய்க' : 'Select Smart Card Photo, QR or Screenshot'}
-                  </Text>
-                </View>
-                <Text style={styles.galleryUploadArrow}>📁</Text>
-              </TouchableOpacity>
-
-              {/* Sample QR Codes Helper Rows for 5 & 6 Members */}
-              <View style={styles.sampleQrBox}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.sampleQrTitle}>
-                    {lang === 'ta' ? '🎯 5 நபர்கள் கார்டு QR குறியீடு' : '🎯 5-Member Smart Card QR'}
-                  </Text>
-                  <Text style={styles.sampleQrSub}>
-                    {lang === 'ta' 
-                      ? 'பிரியா சுந்தரம் (5 நபர்கள் - AAY) • பார்வை / பதிவிறக்கம்' 
-                      : 'Priya Sundaram (5 Members - AAY) • Preview / download'}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', gap: 6 }}>
-                  <TouchableOpacity 
-                    style={styles.sampleQrPreviewBtn}
-                    onPress={() => setActiveModalQr('5')}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.sampleQrPreviewBtnText}>
-                      🔍 {lang === 'ta' ? 'பார்' : 'View'}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.sampleQrDownloadBtn}
-                    onPress={() => handleDownloadSampleQr('5')}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.sampleQrDownloadBtnText}>
-                      📥 {lang === 'ta' ? 'பதிவிறக்கு' : 'Download'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={[styles.sampleQrBox, { marginTop: 6 }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.sampleQrTitle}>
-                    {lang === 'ta' ? '🎯 6 நபர்கள் கார்டு QR குறியீடு' : '🎯 6-Member Smart Card QR'}
-                  </Text>
-                  <Text style={styles.sampleQrSub}>
-                    {lang === 'ta' 
-                      ? 'ரமேஷ் குமார் (6 நபர்கள் - BPL) • பார்வை / பதிவிறக்கம்' 
-                      : 'Ramesh Kumar (6 Members - BPL) • Preview / download'}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', gap: 6 }}>
-                  <TouchableOpacity 
-                    style={styles.sampleQrPreviewBtn}
-                    onPress={() => setActiveModalQr('6')}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.sampleQrPreviewBtnText}>
-                      🔍 {lang === 'ta' ? 'பார்' : 'View'}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.sampleQrDownloadBtn}
-                    onPress={() => handleDownloadSampleQr('6')}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.sampleQrDownloadBtnText}>
-                      📥 {lang === 'ta' ? 'பதிவிறக்கு' : 'Download'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+              {/* Native ID Card Camera Scanner View (Matching reference interface) */}
+              <IdCardScanner
+                selectedCardNo={selectedCardNo}
+                onSelectCardNo={(cardNo) => {
+                  setSelectedCardNo(cardNo);
+                  const found = DEMO_CARDS.find(c => c.cardNo === cardNo);
+                  if (found) setPhone(found.phone);
+                }}
+                onScan={(cardNo) => handleQrScanLogin(cardNo)}
+                onError={(err) => setErrorMessage(err)}
+                onClose={() => {
+                  setErrorMessage('');
+                }}
+                lang={lang}
+              />
 
               {/* Hidden File Input for Web Browser */}
               {Platform.OS === 'web' && (
@@ -699,75 +509,6 @@ export default function LoginScreen({ lang = 'en', onLoginSuccess }) {
           )}
         </View>
       </View>
-
-      {/* Dynamic QR Code Preview & Test Modal for 5 and 6 Members */}
-      {activeModalQr && (
-        <View style={styles.modalBackdrop}>
-          <View style={styles.qrModalCard}>
-            <View style={styles.qrModalHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.qrModalTitle}>
-                  {activeModalQr === '5'
-                    ? (lang === 'ta' ? '5 நபர்கள் கார்டு QR குறியீடு' : '5-Member Smart Card QR Code')
-                    : (lang === 'ta' ? '6 நபர்கள் கார்டு QR குறியீடு' : '6-Member Smart Card QR Code')}
-                </Text>
-                <Text style={styles.qrModalSub}>
-                  {activeModalQr === '5'
-                    ? 'TN-04-AAY-109283 • Priya Sundaram • 5 Members (Antyodaya)'
-                    : 'TN-04-BPL-883921 • Ramesh Kumar • 6 Members (BPL)'}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setActiveModalQr(null)} style={styles.modalCloseBtn}>
-                <Text style={styles.modalCloseBtnText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.qrModalImageContainer}>
-              <Image 
-                source={activeModalQr === '5' ? SAMPLE_QR_5_ASSET : SAMPLE_QR_6_ASSET} 
-                style={styles.qrModalImage} 
-                resizeMode="contain" 
-              />
-              <View style={styles.qrCardMetaPill}>
-                <Text style={styles.qrCardMetaText}>
-                  {activeModalQr === '5'
-                    ? (lang === 'ta' ? 'அட்டை உறுப்பினர்கள்: 5 நபர்கள் (AAY)' : 'Smart Card Family: 5 Members (AAY)')
-                    : (lang === 'ta' ? 'அட்டை உறுப்பினர்கள்: 6 நபர்கள் (BPL)' : 'Smart Card Family: 6 Members (BPL)')}
-                </Text>
-              </View>
-            </View>
-
-            <Text style={styles.qrModalInstruction}>
-              {lang === 'ta' 
-                ? 'இதை "Download QR Image" மூலம் சேமித்து, "UPLOAD QR FROM GALLERY" வழியாக பதிவேற்றி சோதிக்கலாம்.' 
-                : 'Download this image to test gallery upload, or tap the button below for instant login.'}
-            </Text>
-
-            <View style={styles.qrModalActions}>
-              <TouchableOpacity 
-                style={styles.modalDownloadBtn} 
-                onPress={() => handleDownloadSampleQr(activeModalQr)} 
-                activeOpacity={0.7}
-              >
-                <Text style={styles.modalDownloadBtnText}>📥 {lang === 'ta' ? 'QR பதிவிறக்கு' : 'Download QR Image'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.modalTestLoginBtn} 
-                onPress={() => {
-                  const cardToLog = activeModalQr === '5' ? 'TN-04-AAY-109283' : 'TN-04-BPL-883921';
-                  setActiveModalQr(null);
-                  handleQrScanLogin(cardToLog);
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.modalTestLoginBtnText}>
-                  ⚡ {lang === 'ta' ? `${activeModalQr} நபர்கள் கார்டில் உள்நுழைக →` : `Login With ${activeModalQr} Members →`}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
 
       {/* Footer Support Information */}
       <Footer lang={lang} />
@@ -1009,7 +750,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 24,
     height: 24,
-    borderColor: '#FF9933',
+    borderColor: '#0B3D91',
     borderWidth: 3
   },
   bracketTL: {
@@ -1182,173 +923,6 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     fontWeight: '800'
   },
-  sampleQrBox: {
-    marginTop: 10,
-    width: '100%',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10
-  },
-  sampleQrTitle: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    color: '#0B3D91'
-  },
-  sampleQrSub: {
-    fontSize: 9.5,
-    color: '#64748B',
-    marginTop: 1
-  },
-  sampleQrPreviewBtn: {
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#93C5FD'
-  },
-  sampleQrPreviewBtnText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#1D4ED8'
-  },
-  sampleQrDownloadBtn: {
-    backgroundColor: '#0B3D91',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 6
-  },
-  sampleQrDownloadBtnText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#FFFFFF'
-  },
-
-  // QR MODAL
-  modalBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(15, 23, 42, 0.75)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 9999,
-    padding: 16
-  },
-  qrModalCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 18,
-    width: '100%',
-    maxWidth: 420,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 10
-  },
-  qrModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    marginBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-    paddingBottom: 10
-  },
-  qrModalTitle: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#0B3D91'
-  },
-  qrModalSub: {
-    fontSize: 10,
-    color: '#64748B',
-    marginTop: 2
-  },
-  modalCloseBtn: {
-    padding: 6
-  },
-  modalCloseBtnText: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#64748B'
-  },
-  qrModalImageContainer: {
-    alignItems: 'center',
-    marginVertical: 10,
-    backgroundColor: '#F8FAFC',
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0'
-  },
-  qrModalImage: {
-    width: 220,
-    height: 220
-  },
-  qrCardMetaPill: {
-    marginTop: 8,
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#FCD34D'
-  },
-  qrCardMetaText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: '#92400E'
-  },
-  qrModalInstruction: {
-    fontSize: 11,
-    color: '#475569',
-    textAlign: 'center',
-    marginVertical: 10,
-    lineHeight: 16
-  },
-  qrModalActions: {
-    flexDirection: 'row',
-    gap: 10,
-    width: '100%',
-    marginTop: 6
-  },
-  modalDownloadBtn: {
-    flex: 1,
-    backgroundColor: '#F1F5F9',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#CBD5E1'
-  },
-  modalDownloadBtnText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#334155'
-  },
-  modalTestLoginBtn: {
-    flex: 1.3,
-    backgroundColor: '#FF9933',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center'
-  },
-  modalTestLoginBtnText: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: '#061E47'
-  },
-
   // ==================== PHONE SECTION ====================
   phoneSection: {
     width: '100%'
